@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tool Box</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --accent: #58a6ff; --accent2: #3fb950; --warn: #f78166;
+    --text: #e6edf3; --muted: #8b949e; --radius: 6px;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:13px; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+  /* ── Top bar ── */
+  #topbar { display:flex; align-items:center; gap:10px; padding:7px 14px; background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
+  #topbar h1 { font-size:15px; font-weight:700; color:var(--accent); letter-spacing:.5px; white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  #topbar h1 .logo-box { display:inline-flex; align-items:center; justify-content:center; background:#1f3a52; border:1px solid #1f6feb55; border-radius:5px; padding:2px 6px; }
+  .sep { width:1px; height:24px; background:var(--border); flex-shrink:0; }
+  #db-name { font-size:12px; color:var(--accent2); font-weight:500; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #db-name.none { color:var(--muted); }
+
+  /* ── Shared file source info ── */
+  #las-info { font-size:11px; color:var(--muted); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #las-info.loaded { color:var(--accent2); }
+
+  /* ── Buttons & File Inputs ── */
+  .btn { padding:5px 11px; background:#21262d; border:1px solid var(--border); border-radius:var(--radius); color:var(--text); cursor:pointer; white-space:nowrap; font-size:12px; transition:background .13s, border-color .13s; display:inline-flex; align-items:center; gap:5px; }
+  .btn:hover { background:#30363d; border-color:var(--accent); }
+  .btn:disabled { background:#161b22; border-color:var(--border); color:var(--muted); cursor:not-allowed; }
+  .btn.active { background:#1f3a52; border-color:var(--accent); color:var(--accent); }
+  .file-btn { position:relative; overflow:hidden; cursor:pointer; }
+  .file-btn input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
+
+  /* ── App-level Tabs ── */
+  #app-tabs { display:flex; gap:3px; padding:6px 14px 0; background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .app-tab { padding:6px 16px; background:#0d1117; border:1px solid var(--border); border-bottom:none; border-radius:5px 5px 0 0; cursor:pointer; font-size:12px; font-weight:600; color:var(--muted); transition:all .15s; }
+  .app-tab:hover { color:var(--text); background:#21262d; }
+  .app-tab.active { background:var(--bg); border-color:var(--border); color:var(--accent); border-bottom:1px solid var(--bg); margin-bottom:-1px; }
+  .app-tab-icon { font-size:13px; margin-right:4px; }
+
+  /* ── Main area (below tabs) ── */
+  #app-body { flex:1; display:flex; min-height:0; position:relative; }
+  .app-panel { display:none; flex:1; min-height:0; min-width:0; flex-direction:column; }
+  .app-panel.active { display:flex; }
+
+  /* ══════════════════════════════
+     WELLPATH STUDIO PANEL
+  ══════════════════════════════ */
+  #wp-main { display:flex; flex:1; min-height:0; }
+
+  /* ── Sidebar ── */
+  #wp-sidebar { width:260px; flex-shrink:0; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+  .sb-section { padding:10px 12px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; flex:1; overflow:hidden; }
+  .sb-section h2 { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin-bottom:8px; }
+  #well-search { width:100%; padding:5px 8px; background:#0d1117; border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:12px; margin-bottom:6px; outline:none; }
+  #well-search:focus { border-color:var(--accent); }
+  .select-row { display:flex; gap:5px; margin-bottom:6px; }
+  .select-row .btn { flex:1; font-size:11px; padding:3px 0; justify-content:center; }
+  #well-list-wrap { flex:1; overflow-y:auto; padding:5px; }
+  #well-list-wrap::-webkit-scrollbar { width:5px; }
+  #well-list-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+  .well-item { display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:var(--radius); cursor:pointer; border:1px solid transparent; transition:background .1s; }
+  .well-item:hover { background:#21262d; }
+  .well-item.selected { background:#1f3a52; border-color:#1f6feb44; }
+  .well-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .well-name { flex:1; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .well-check { width:13px; height:13px; accent-color:var(--accent); cursor:pointer; }
+  .well-actions { display:flex; gap:3px; opacity:0; transition:opacity .13s; }
+  .well-item:hover .well-actions { opacity:1; }
+  .edit-well, .del-well { font-size:11px; color:var(--muted); cursor:pointer; padding:1px 4px; border-radius:3px; }
+  .edit-well:hover { color:var(--accent); background:#1f3a52; }
+  .del-well:hover { color:var(--warn); background:#3d1a1a; }
+
+  /* ── WP Workspace ── */
+  #wp-right { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #wp-toolbar { display:flex; align-items:center; gap:8px; padding:6px 12px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; flex-shrink:0; }
+  .tt-group { display:flex; gap:4px; flex-wrap:wrap; }
+  .tt-toggle { display:flex; align-items:center; gap:4px; padding:3px 8px; background:#21262d; border:1px solid var(--border); border-radius:var(--radius); cursor:pointer; font-size:11px; color:var(--muted); transition:all .12s; user-select:none; }
+  .tt-toggle input { display:none; }
+  .tt-toggle.on { background:#1f3a52; border-color:var(--accent); color:var(--accent); }
+  .filter-table { border-collapse:collapse; }
+  .filter-table th, .filter-table td { padding:2px 5px; font-size:11px; color:var(--muted); }
+  .filter-table th { color:var(--text); }
+  .filter-table input[type=number] { width:62px; padding:3px 5px; background:#0d1117; border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:11px; outline:none; }
+  .filter-table input[type=number]:focus { border-color:var(--accent); }
+  .view-group { display:flex; gap:4px; }
+  #wellSelector { padding:4px 8px; background:#21262d; border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:12px; outline:none; }
+  #wellSelector:focus { border-color:var(--accent); }
+  #wp-plot { flex:1; min-height:0; display:none; }
+  #wp-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); gap:12px; }
+  #wp-empty svg { opacity:.25; }
+  #wp-empty .es-title { font-size:15px; color:var(--text); opacity:.5; }
+  #wp-empty .es-sub { font-size:12px; text-align:center; line-height:1.7; max-width:340px; }
+  .steps { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+  .step { display:flex; align-items:center; gap:10px; font-size:12px; }
+  .step-num { width:22px; height:22px; border-radius:50%; background:#21262d; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; color:var(--accent); flex-shrink:0; }
+
+  /* ══════════════════════════════
+     LOGS VIEWER PANEL
+  ══════════════════════════════ */
+  #lv-wrap { flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  #lv-controls { background:var(--panel); border-bottom:1px solid var(--border); padding:8px 14px; flex-shrink:0; display:flex; flex-direction:column; gap:8px; }
+  #lv-row1 { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  #lv-row2 { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  #lv-status { font-size:11px; color:var(--accent2); font-weight:500; }
+  #lv-msg { font-size:11px; color:var(--warn); font-weight:500; white-space:pre-line; line-height:1.4; max-width:900px; }
+  .lv-label { font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:5px; }
+  .lv-label select, .lv-label input[type=number] { padding:3px 7px; background:#21262d; border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:12px; outline:none; }
+  .lv-label select:focus, .lv-label input[type=number]:focus { border-color:var(--accent); }
+  #lv-well-list { display:flex; flex-wrap:wrap; gap:8px 14px; }
+  .lv-well-item { display:flex; align-items:center; gap:5px; background:#21262d; border:1px solid var(--border); padding:3px 9px; border-radius:var(--radius); font-size:12px; }
+  .lv-well-item input[type=checkbox] { accent-color:var(--accent); }
+  #lv-inner-tabs { display:flex; gap:5px; padding:6px 14px 0; background:var(--panel); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .lv-tab-btn { padding:5px 13px; background:#0d1117; border:1px solid var(--border); border-bottom:none; border-radius:5px 5px 0 0; cursor:pointer; font-size:12px; font-weight:600; color:var(--muted); transition:all .15s; }
+  .lv-tab-btn:hover { color:var(--text); }
+  .lv-tab-btn.active { background:var(--bg); color:var(--accent); border-bottom:1px solid var(--bg); margin-bottom:-1px; }
+  #lv-tab-content { flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; }
+  .lv-tab-panel { display:none; flex-direction:column; flex:1; }
+  .lv-tab-panel.active { display:flex; }
+  .lv-param-bar { padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; flex-shrink:0; }
+  .lv-param-block { border:1px solid var(--border); background:#21262d; border-radius:var(--radius); padding:5px 9px; display:flex; align-items:center; gap:5px; font-size:11px; }
+  .lv-param-block b { color:var(--text); min-width:40px; }
+  .lv-param-block span.unit { color:var(--muted); }
+  .lv-param-block input[type=number] { width:62px; padding:2px 5px; background:#0d1117; border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:11px; outline:none; }
+  .lv-param-block input[type=number]:focus { border-color:var(--accent); }
+  .lv-param-block label { display:flex; align-items:center; gap:4px; cursor:pointer; }
+  .lv-param-block input[type=checkbox] { accent-color:var(--accent); }
+  .lv-note { font-size:11px; color:var(--muted); padding:4px 14px; flex-shrink:0; }
+  .lv-plot-area { flex:1; min-height:600px; }
+
+  /* ── Log terminal (shared) ── */
+  #log-bar { background:#0d1117; border-top:1px solid var(--border); font-size:11px; color:var(--muted); padding:3px 10px; flex-shrink:0; display:flex; gap:8px; align-items:center; max-height:26px; overflow:hidden; transition:max-height .2s; }
+  #log-bar.expanded { max-height:160px; overflow-y:auto; flex-direction:column; align-items:flex-start; }
+  #log-bar.expanded #log-toggle { align-self:flex-end; }
+  #log-msgs { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #log-bar.expanded #log-msgs { white-space:normal; width:100%; }
+  #log-toggle { font-size:10px; padding:1px 6px; background:#21262d; border:1px solid var(--border); border-radius:3px; cursor:pointer; color:var(--muted); flex-shrink:0; }
+
+  /* ── Overlays ── */
+  #loading { display:none; position:fixed; inset:0; background:rgba(13,17,23,.8); align-items:center; justify-content:center; z-index:999; flex-direction:column; gap:12px; }
+  #loading.show { display:flex; }
+  .spinner { width:34px; height:34px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #loading p { color:var(--text); font-size:13px; }
+  #toast { position:fixed; bottom:34px; right:16px; padding:7px 13px; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:12px; z-index:1000; opacity:0; transform:translateY(6px); transition:opacity .2s, transform .2s; pointer-events:none; }
+  #toast.show { opacity:1; transform:none; }
+  #toast.ok { border-color:var(--accent2); color:var(--accent2); }
+  #toast.err { border-color:var(--warn); color:var(--warn); }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p id="loading-msg">Processing...</p></div>
+<div id="toast"></div>
+
+<!-- ════════════════════════════════════
+     TOP BAR — SHARED CONTROLS
+════════════════════════════════════ -->
+<div id="topbar">
+  <h1><span class="logo-box">⬡</span> Tool Box</h1>
+  <div class="sep"></div>
+
+  <!-- WellPath DB controls (shown only when WellPath tab active) -->
+  <div id="db-controls" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <label class="btn file-btn" title="Open an existing local .sqlite file">
+      📂 Open DB
+      <input type="file" id="btn-open-db" accept=".sqlite,.db,.sqlite3">
+    </label>
+    <button class="btn" id="btn-new-db" title="Create a new in-memory database">✚ New DB</button>
+    <button class="btn" id="btn-save-db" title="Download current database snapshot" disabled>💾 Save DB</button>
+    <div class="sep"></div>
+    <label class="btn file-btn" title="Import COMPASS .txt survey log files into active DB">
+      ＋ Import .txt
+      <input type="file" id="import-txt" accept=".txt" multiple disabled>
+    </label>
+    <div class="sep"></div>
+    <span id="db-name" class="none">No active database</span>
+  </div>
+
+  <!-- LAS file controls (shown only when Logs Viewer tab active) -->
+  <div id="las-controls" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;">
+    <label class="btn file-btn" title="Load .LAS or .txt log files (drilling, LWD, survey)">
+      📂 Load LAS / .txt
+      <input type="file" id="lv-file-input" multiple accept=".las,.txt">
+    </label>
+    <div class="sep"></div>
+    <span id="las-info">No files loaded</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     APP-LEVEL TABS
+════════════════════════════════════ -->
+<div id="app-tabs">
+  <div class="app-tab active" data-tab="wellpath"><span class="app-tab-icon">⬡</span> WellPath Studio</div>
+  <div class="app-tab" data-tab="logsviewer"><span class="app-tab-icon">📊</span> Logs Viewer</div>
+</div>
+
+<!-- ════════════════════════════════════
+     APP BODY
+════════════════════════════════════ -->
+<div id="app-body">
+
+  <!-- ══ PANEL 1: WELLPATH STUDIO ══ -->
+  <div class="app-panel active" id="panel-wellpath">
+    <div id="wp-main">
+      <div id="wp-sidebar">
+        <div class="sb-section">
+          <h2>Database Wells</h2>
+          <input type="text" id="well-search" placeholder="Search well..." disabled>
+          <div class="select-row">
+            <button class="btn" id="btn-sel-all" disabled>All</button>
+            <button class="btn" id="btn-sel-none" disabled>None</button>
+          </div>
+          <div id="well-list-wrap">
+            <div id="well-list"><div style="color:var(--muted);font-size:12px;padding:8px;">Open or create a database first.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="wp-right">
+        <div id="wp-toolbar">
+          <div class="tt-group" id="tt-group">
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="MD" checked><span>MD</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="TVD" checked><span>TVD</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="INC" checked><span>INC</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="AZI" checked><span>AZI</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="DLS" checked><span>DLS</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="DIST" checked><span>C-C</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="CLOSEST" checked><span>Closest</span></label>
+            <label class="tt-toggle on"><input type="checkbox" class="tt-option" value="DIST_SELECTED" checked><span>C-C Sel.</span></label>
+          </div>
+          <div class="sep"></div>
+          <table class="filter-table">
+            <tr><th></th><th>Min</th><th>Max</th></tr>
+            <tr><td>TVD</td><td><input type="number" id="tvdFrom" placeholder="—"></td><td><input type="number" id="tvdTo" placeholder="—"></td></tr>
+            <tr><td>X</td><td><input type="number" id="xFrom" placeholder="—"></td><td><input type="number" id="xTo" placeholder="—"></td></tr>
+            <tr><td>Y</td><td><input type="number" id="yFrom" placeholder="—"></td><td><input type="number" id="yTo" placeholder="—"></td></tr>
+          </table>
+          <div class="sep"></div>
+          <div class="view-group">
+            <button class="btn" id="btnPlan">Plan</button>
+            <button class="btn" id="btnSection">W–E</button>
+            <button class="btn active" id="btn3D">3D</button>
+          </div>
+          <div class="sep"></div>
+          <select id="wellSelector"><option value="">C-C vs well...</option></select>
+        </div>
+
+        <div id="wp-empty">
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+          </svg>
+          <span class="es-title">No data loaded</span>
+          <div class="steps">
+            <div class="step"><div class="step-num">1</div><span>Open an existing database <b>(.sqlite)</b> or hit <b>New DB</b></span></div>
+            <div class="step"><div class="step-num">2</div><span>Import COMPASS <b>.txt</b> logs to dynamically append traces</span></div>
+            <div class="step"><div class="step-num">3</div><span>Check or uncheck wells on the left to map them instantly</span></div>
+          </div>
+        </div>
+        <div id="wp-plot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ PANEL 2: LOGS VIEWER ══ -->
+  <div class="app-panel" id="panel-logsviewer">
+    <div id="lv-wrap">
+      <!-- Controls row -->
+      <div id="lv-controls">
+        <div id="lv-row1">
+          <label class="lv-label">Depth ref:
+            <select id="lv-depthMode">
+              <option value="MD">MD</option>
+              <option value="TVD">TVDRT</option>
+            </select>
+          </label>
+          <label class="lv-label" id="lv-zMinLabel">View from (m MD): <input id="lv-zMin" type="number" step="10" style="width:90px"></label>
+          <label class="lv-label" id="lv-zMaxLabel">to (m MD): <input id="lv-zMax" type="number" step="10" style="width:90px"></label>
+          <span style="font-size:11px;color:var(--muted);" id="lv-depthRefNote">(interval in MD — switch Depth ref to filter by TVDRT)</span>
+        </div>
+        <div id="lv-row2">
+          <span style="font-size:11px;color:var(--muted);font-weight:600;">Wells shown:</span>
+          <div id="lv-well-list"></div>
+        </div>
+        <div id="lv-status" style="display:none;">Status: idle</div>
+        <div id="lv-msg"></div>
+      </div>
+
+      <!-- Inner sub-tabs -->
+      <div id="lv-inner-tabs">
+        <button class="lv-tab-btn active" id="lv-tabBtnDP">Drilling Parameters</button>
+        <button class="lv-tab-btn" id="lv-tabBtnMSE">Energy Metrics</button>
+        <button class="lv-tab-btn" id="lv-tabBtnLWD">LWD</button>
+      </div>
+
+      <!-- Tab content area -->
+      <div id="lv-tab-content">
+
+        <!-- Drilling Parameters tab -->
+        <div class="lv-tab-panel active" id="lv-tabDP">
+          <div class="lv-param-bar">
+            <div class="lv-param-block"><b>ROP</b><span class="unit">m/h</span> min <input id="ropMin" type="number" value="0"> max <input id="ropMax" type="number" value="200"></div>
+            <div class="lv-param-block"><b>WOB</b><span class="unit">t</span> min <input id="wobMin" type="number" value="0"> max <input id="wobMax" type="number" value="50"></div>
+            <div class="lv-param-block"><b>TQ</b><span class="unit">t</span> min <input id="tqMin" type="number" value="0"> max <input id="tqMax" type="number" value="50"></div>
+            <div class="lv-param-block"><b>RPM</b><span class="unit">rpm</span> min <input id="rpmMin" type="number" value="0"> max <input id="rpmMax" type="number" value="200"></div>
+            <div class="lv-param-block"><b>FLOW</b><span class="unit">lpm</span> min <input id="flowMin" type="number" value="0"> max <input id="flowMax" type="number" value="5000"></div>
+            <div class="lv-param-block"><b>SPP</b><span class="unit">bar</span> min <input id="sppMin" type="number" value="0"> max <input id="sppMax" type="number" value="500"></div>
+          </div>
+          <div class="lv-note">Legend click toggles a parameter for <b>all wells</b>. Only ROP axis is shown to avoid clutter.</div>
+          <div class="lv-plot-area" id="plotDP"></div>
+        </div>
+
+        <!-- Energy Metrics tab -->
+        <div class="lv-tab-panel" id="lv-tabMSE">
+          <div class="lv-param-bar">
+            <div class="lv-param-block"><label><input id="incOn" type="checkbox" checked> <b>INC</b></label> min <input id="incMin" type="number" value="0"> max <input id="incMax" type="number" value="120"></div>
+            <div class="lv-param-block"><b>MSE</b> min <input id="mseMin" type="number" value="0"> max <input id="mseMax" type="number" value="5000"></div>
+            <div class="lv-param-block"><b>HSE</b> min <input id="hseMin" type="number" value="0"> max <input id="hseMax" type="number" value="1000"></div>
+            <div class="lv-param-block"><b>FMSE</b> min <input id="fmseMin" type="number" value="0"> max <input id="fmseMax" type="number" value="5000"></div>
+            <div class="lv-param-block"><b>HCR</b> min <input id="hcrMin" type="number" value="0"> max <input id="hcrMax" type="number" value="3"></div>
+          </div>
+          <div class="lv-note">Legend click toggles a curve for <b>all wells</b>. Only MSE axis is shown to avoid clutter.</div>
+          <div class="lv-plot-area" id="plotMSE"></div>
+        </div>
+
+        <!-- LWD tab -->
+        <div class="lv-tab-panel" id="lv-tabLWD">
+          <div class="lv-param-bar">
+            <div class="lv-param-block"><label><input id="lwdGrOn" type="checkbox" checked> <b>GR</b></label> min <input id="lwdGrMin" type="number" value="0"> max <input id="lwdGrMax" type="number" value="150"></div>
+            <div class="lv-param-block"><label><input id="lwdResOn" type="checkbox" checked> <b>RES</b></label> min <input id="lwdResMin" type="number" step="0.01" value="0.2"> max <input id="lwdResMax" type="number" value="2000"><span class="unit">(log)</span></div>
+            <div class="lv-param-block"><label><input id="lwdDenOn" type="checkbox" checked> <b>DEN</b></label> min <input id="lwdDenMin" type="number" step="0.01" value="1.8"> max <input id="lwdDenMax" type="number" step="0.01" value="2.8"></div>
+            <div class="lv-param-block"><label><input id="lwdNeuOn" type="checkbox" checked> <b>NEU</b></label> min <input id="lwdNeuMin" type="number" step="0.01" value="0"> max <input id="lwdNeuMax" type="number" step="0.01" value="0.6"><span class="unit">(rev.)</span></div>
+          </div>
+          <div class="lv-note">Legend click toggles a curve for <b>all wells</b>. Use checkboxes to enable/disable curves.</div>
+          <div class="lv-plot-area" id="plotLWD"></div>
+        </div>
+
+      </div><!-- /lv-tab-content -->
+    </div><!-- /lv-wrap -->
+  </div><!-- /panel-logsviewer -->
+
+</div><!-- /app-body -->
+
+<!-- ── Shared Log bar ── -->
+<div id="log-bar">
+  <span id="log-msgs">Initializing relational database engine...</span>
+  <button id="log-toggle">▲ Log</button>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  TOOL BOX — SHARED GLOBALS & UTILITIES
+// ══════════════════════════════════════════════════════════
+let SQL = null, db = null, dbFileName = null;
+let wpWells = [], wpTraces = [], wpTraceVisibility = [];
+let wpCurrentView = '3D', wpWellListData = [], wpIsPlotInit = false;
+
+const WP_COLORS = ['#636EFA','#EF553B','#00CC96','#AB63FA','#FFA15A',
+                   '#19D3F3','#FF6692','#B6E880','#FF97FF','#FECB52',
+                   '#72B7B2','#EECA3B','#FF9DA6','#B279A2','#E15759'];
+
+// ── Log / Toast / Loading ──
+let logLines = [];
+function log(msg, type=''){
+  logLines.push({msg, type});
+  if(logLines.length > 300) logLines.shift();
+  const bar = document.getElementById('log-bar');
+  if(bar.classList.contains('expanded')){ renderLog(); }
+  else {
+    const el = document.getElementById('log-msgs');
+    el.textContent = msg;
+    el.style.color = type==='ok'?'#3fb950':type==='err'?'#f78166':'#8b949e';
+  }
+}
+function renderLog(){
+  document.getElementById('log-msgs').innerHTML = logLines.map(l=>
+    `<div style="color:${l.type==='ok'?'#3fb950':l.type==='err'?'#f78166':'#8b949e'}">${l.msg}</div>`
+  ).join('');
+}
+let toastTimer;
+function toast(msg, type=''){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ t.className=''; }, 2800);
+}
+function showLoading(msg='Processing...'){ document.getElementById('loading-msg').textContent=msg; document.getElementById('loading').classList.add('show'); }
+function hideLoading(){ document.getElementById('loading').classList.remove('show'); }
+
+// ── App-level tab switching ──
+let currentAppTab = 'wellpath';
+document.querySelectorAll('.app-tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    const target = tab.dataset.tab;
+    document.querySelectorAll('.app-tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===target));
+    document.querySelectorAll('.app-panel').forEach(p=>p.classList.toggle('active', p.id==='panel-'+target));
+    currentAppTab = target;
+    // Toggle top-bar sections
+    document.getElementById('db-controls').style.display  = target==='wellpath'    ? 'flex' : 'none';
+    document.getElementById('las-controls').style.display = target==='logsviewer'  ? 'flex' : 'none';
+    // Resize plots if switching
+    if(target==='logsviewer'){
+      try{ if(lvWells.length) setTimeout(()=>{ try{Plotly.Plots.resize('plotDP');}catch(e){} try{Plotly.Plots.resize('plotMSE');}catch(e){} try{Plotly.Plots.resize('plotLWD');}catch(e){}},100); }catch(e){}
+    }
+    if(target==='wellpath' && wpWells.length){ setTimeout(()=>{ try{Plotly.Plots.resize('wp-plot');}catch(e){}},100); }
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+//  WELLPATH STUDIO — ENGINE
+// ══════════════════════════════════════════════════════════
+async function initSQLjs(){
+  log('Loading SQL.js WebAssembly engine...');
+  SQL = await initSqlJs({ locateFile: f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
+  log('SQL.js Engine compiled and running directly inside browser memory sandbox', 'ok');
+}
+
+function createSchema(){
+  db.run(`
+    CREATE TABLE IF NOT EXISTS wells (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
+      wellbore TEXT, design TEXT,
+      surface_x REAL, surface_y REAL, rkb_msl REAL, water_depth REAL,
+      imported_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS survey_points (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, well_id INTEGER NOT NULL,
+      md REAL, inc REAL, azi REAL, tvd REAL, tvdss REAL,
+      x REAL, y REAL, ns REAL, ew REAL, dls REAL,
+      FOREIGN KEY(well_id) REFERENCES wells(id)
+    );
+  `);
+}
+
+function wpSetDbActive(fileName){
+  dbFileName = fileName;
+  const el = document.getElementById('db-name');
+  const hasDbt = !!fileName;
+  el.textContent = hasDbt ? '● '+fileName : 'No active database';
+  el.className = hasDbt ? '' : 'none';
+  document.getElementById('btn-save-db').disabled = !hasDbt;
+  document.getElementById('import-txt').disabled  = !hasDbt;
+  document.getElementById('well-search').disabled = !hasDbt;
+  document.getElementById('btn-sel-all').disabled = !hasDbt;
+  document.getElementById('btn-sel-none').disabled= !hasDbt;
+}
+
+document.getElementById('btn-new-db').addEventListener('click', ()=>{
+  if(!SQL){ toast('SQL engine is not ready yet','err'); return; }
+  db = new SQL.Database();
+  createSchema();
+  wpSetDbActive('New_Database.sqlite');
+  wpRefreshWellList();
+  log('Created a blank relational schema inside virtual RAM. Use "Save DB" to download file.','ok');
+  toast('New DB instantiated','ok');
+});
+
+document.getElementById('btn-open-db').addEventListener('change', function(e){
+  const file = e.target.files[0]; if(!file) return;
+  if(!SQL){ toast('SQL engine is not ready yet','err'); return; }
+  showLoading('Opening database...');
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      db = new SQL.Database(new Uint8Array(ev.target.result));
+      createSchema();
+      wpSetDbActive(file.name);
+      wpRefreshWellList();
+      log(`Opened: ${file.name}`,'ok');
+      toast(`DB loaded: ${file.name}`,'ok');
+    }catch(err){ log('Open failed: '+err.message,'err'); toast('Cannot open DB','err'); }
+    hideLoading();
+  };
+  reader.readAsArrayBuffer(file);
+  this.value='';
+});
+
+document.getElementById('btn-save-db').addEventListener('click', ()=>{
+  if(!db){ toast('No active database','err'); return; }
+  const data = db.export();
+  const blob = new Blob([data], {type:'application/octet-stream'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = dbFileName || 'wellpath.sqlite';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Saved','ok');
+});
+
+function wpParseTxt(text){
+  const lines = text.replace(/\r/g,'').split('\n');
+  const meta = {};
+  const points = [];
+  for(const raw of lines){
+    const l = raw.trim();
+    if(!l) continue;
+    if(l.startsWith('WELL') && !l.startsWith('WELLBORE')){ const m=l.match(/WELL\s+(.*)/); if(m) meta.well=m[1].trim(); }
+    if(l.startsWith('WELLBORE')){ const m=l.match(/WELLBORE\s+(.*)/); if(m) meta.wellbore=m[1].trim(); }
+    if(l.startsWith('DESIGN')){ const m=l.match(/DESIGN\s+(.*)/); if(m) meta.design=m[1].trim(); }
+    if(l.startsWith('Surface')){ const m=l.match(/[\d.\-]+/g); if(m&&m.length>=2){meta.surface_x=parseFloat(m[0]);meta.surface_y=parseFloat(m[1]);} }
+    if(l.startsWith('RKB') || l.startsWith('Datum')){ const m=l.match(/[\d.\-]+/); if(m) meta.rkb_msl=parseFloat(m[0]); }
+    if(l.startsWith('Water')){ const m=l.match(/[\d.\-]+/); if(m) meta.water_depth=parseFloat(m[0]); }
+    if(l.startsWith('WELL') || l.startsWith('WELLBORE') || l.startsWith('DESIGN') ||
+       l.startsWith('Surface') || l.startsWith('Datum') || l.startsWith('RKB') ||
+       l.startsWith('Water') || l.startsWith('North') || l.startsWith('Geo') ||
+       l.startsWith('Map') || l.startsWith('SURVEY') || l.startsWith('MD') ||
+       l.startsWith('m RKB')) continue;
+    const parts = l.split(/\s+/).map(Number);
+    if(parts.length >= 10 && !isNaN(parts[0]) && !isNaN(parts[1])){
+      const [md,inc,azi,tvd,tvdss,x,y,ns,ew,dls]=parts;
+      points.push({md,inc,azi,tvd,tvdss,x,y,ns,ew,dls:dls||0});
+    }
+  }
+  if(!meta.well) throw new Error('WELL identifier token missing inside log file');
+  if(points.length===0) throw new Error('No trajectory survey coordinates detected');
+  if(!meta.surface_x && points.length) meta.surface_x=points[0].x;
+  if(!meta.surface_y && points.length) meta.surface_y=points[0].y;
+  return {meta, points};
+}
+
+function wpInsertWell(meta, points){
+  db.run(`INSERT OR REPLACE INTO wells (name,wellbore,design,surface_x,surface_y,rkb_msl,water_depth) VALUES (?,?,?,?,?,?,?)`,
+    [meta.well,meta.wellbore||'',meta.design||'',meta.surface_x||0,meta.surface_y||0,meta.rkb_msl||0,meta.water_depth||0]);
+  const res=db.exec(`SELECT id FROM wells WHERE name=?`,[meta.well]);
+  const wellId=res[0].values[0][0];
+  db.run(`DELETE FROM survey_points WHERE well_id=?`,[wellId]);
+  const stmt=db.prepare(`INSERT INTO survey_points (well_id,md,inc,azi,tvd,tvdss,x,y,ns,ew,dls) VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  for(const p of points) stmt.run([wellId,p.md,p.inc,p.azi,p.tvd,p.tvdss,p.x,p.y,p.ns,p.ew,p.dls]);
+  stmt.free();
+}
+
+document.getElementById('import-txt').addEventListener('change', async function(e){
+  if(!db){ toast('Open or create a database first','err'); return; }
+  const files=[...e.target.files]; if(!files.length) return;
+  showLoading(`Parsing ${files.length} flat text logs...`);
+  let ok=0, fail=0;
+  for(const f of files){
+    await new Promise(resolve=>{
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        try{
+          const {meta,points}=wpParseTxt(ev.target.result);
+          wpInsertWell(meta,points);
+          log(`✓ Parsed: ${meta.well} (${points.length} points mapped to DB)`,'ok');
+          ok++;
+        }catch(err){ log(`✗ Skip ${f.name}: ${err.message}`,'err'); fail++; }
+        resolve();
+      };
+      reader.readAsText(f);
+    });
+  }
+  wpRefreshWellList(); hideLoading();
+  if(ok)   toast(`${ok} log(s) appended`,'ok');
+  if(fail) toast(`${fail} files skipped`,'err');
+  this.value='';
+});
+
+function wpRefreshWellList(){
+  if(!db) return;
+  const res=db.exec(`SELECT id,name FROM wells ORDER BY name`);
+  const rows=res.length?res[0].values:[];
+  wpWellListData=rows.map(r=>({id:r[0],name:r[1],selected:true}));
+  wpRenderWellList();
+  wpTriggerAutoVisualize();
+}
+
+function wpRenderWellList(){
+  const filter=document.getElementById('well-search').value.toLowerCase();
+  const container=document.getElementById('well-list');
+  const filtered=wpWellListData.filter(w=>w.name.toLowerCase().includes(filter));
+  if(!filtered.length){
+    container.innerHTML=`<div style="color:var(--muted);font-size:12px;padding:8px;">${wpWellListData.length?'No search matches.':'Database currently empty.'}</div>`;
+    return;
+  }
+  container.innerHTML='';
+  filtered.forEach(w=>{
+    const globalIdx=wpWellListData.findIndex(item=>item.id===w.id);
+    const color=WP_COLORS[globalIdx%WP_COLORS.length];
+    const div=document.createElement('div');
+    div.className='well-item'+(w.selected?' selected':'');
+    div.innerHTML=`
+      <div class="well-dot" style="background:${color}"></div>
+      <span class="well-name" title="${w.name}">${w.name}</span>
+      <div class="well-actions">
+        <span class="edit-well" title="Rename trace">✎</span>
+        <span class="del-well" title="Remove trace">✕</span>
+      </div>
+      <input type="checkbox" class="well-check" ${w.selected?'checked':''}>
+    `;
+    div.querySelector('.well-check').addEventListener('change',ev=>{ w.selected=ev.target.checked; div.classList.toggle('selected',w.selected); wpTriggerAutoVisualize(); });
+    div.querySelector('.edit-well').addEventListener('click',ev=>{
+      ev.stopPropagation();
+      const newName=prompt(`Modify structural name for well trace:`,w.name);
+      if(!newName||newName.trim()===''||newName===w.name) return;
+      const check=db.exec(`SELECT id FROM wells WHERE name=?`,[newName.trim()]);
+      if(check.length>0){toast(`Identifier already exists`,'err');return;}
+      db.run(`UPDATE wells SET name=? WHERE id=?`,[newName.trim(),w.id]);
+      wpRefreshWellList(); toast(`Renamed`,'ok');
+    });
+    div.querySelector('.del-well').addEventListener('click',ev=>{
+      ev.stopPropagation();
+      if(!confirm(`Remove ${w.name} completely from internal schema?`)) return;
+      db.run(`DELETE FROM survey_points WHERE well_id=?`,[w.id]);
+      db.run(`DELETE FROM wells WHERE id=?`,[w.id]);
+      wpRefreshWellList(); toast(`Dropped table references`,'err');
+    });
+    div.addEventListener('click',ev=>{
+      if(ev.target.classList.contains('del-well')||ev.target.classList.contains('edit-well')||ev.target.classList.contains('well-check')) return;
+      w.selected=!w.selected;
+      div.querySelector('.well-check').checked=w.selected;
+      div.classList.toggle('selected',w.selected);
+      wpTriggerAutoVisualize();
+    });
+    container.appendChild(div);
+  });
+}
+
+document.getElementById('btn-sel-all').addEventListener('click',()=>{ wpWellListData.forEach(w=>w.selected=true); wpRenderWellList(); wpTriggerAutoVisualize(); });
+document.getElementById('btn-sel-none').addEventListener('click',()=>{ wpWellListData.forEach(w=>w.selected=false); wpRenderWellList(); wpTriggerAutoVisualize(); });
+document.getElementById('well-search').addEventListener('input', wpRenderWellList);
+
+function wpTriggerAutoVisualize(){
+  const selected=wpWellListData.filter(w=>w.selected);
+  if(!selected.length){
+    document.getElementById('wp-empty').style.display='flex';
+    document.getElementById('wp-plot').style.display='none';
+    wpWells=[]; wpTraces=[];
+    return;
+  }
+  try{
+    wpWells=[]; wpTraces=[]; wpTraceVisibility=[];
+    selected.forEach(w=>{
+      const res=db.exec(`SELECT md,inc,azi,tvd,x,y,dls FROM survey_points WHERE well_id=? ORDER BY md`,[w.id]);
+      if(!res.length||!res[0].values.length) return;
+      const md=[],inc=[],azi=[],tvd=[],x=[],y=[],dls=[];
+      res[0].values.forEach(r=>{md.push(r[0]);inc.push(r[1]);azi.push(r[2]);tvd.push(r[3]);x.push(r[4]);y.push(r[5]);dls.push(r[6]||0);});
+      const globalIdx=wpWellListData.findIndex(item=>item.id===w.id);
+      const wellColor=WP_COLORS[globalIdx%WP_COLORS.length];
+      wpWells.push({name:w.name,MD:md,INC:inc,AZI:azi,TVD:tvd,x,y,z:tvd.slice(),DLS:dls,color:wellColor});
+    });
+    wpWells=wpWells.map(w=>wpResampleWell(w,5));
+    wpWells.forEach((w,wi)=>{
+      const custom=w.MD.map((mdVal,pi)=>{
+        const px=w.x[pi],py=w.y[pi],pz=w.z[pi];
+        let minD=Infinity,closest='N/A';
+        wpWells.forEach((o,oi)=>{ if(oi===wi) return;
+          o.x.forEach((ox,j)=>{ const d=Math.sqrt((px-ox)**2+(py-o.y[j])**2+(pz-o.z[j])**2); if(d<minD){minD=d;closest=o.name;} });
+        });
+        return {md:mdVal,tvd:w.TVD[pi],inc:w.INC[pi],azi:w.AZI[pi],dls:w.DLS[pi],dist:minD,closest,dist_selected:NaN};
+      });
+      wpTraces.push({type:'scatter3d',mode:'lines',name:w.name,x:w.x,y:w.y,z:w.z,line:{width:4,color:w.color},customdata:custom});
+    });
+    wpTraceVisibility=wpWells.map(()=>true);
+    const sel=document.getElementById('wellSelector');
+    sel.innerHTML='<option value="">C-C vs well...</option>';
+    wpWells.forEach(w=>{ const o=document.createElement('option'); o.value=w.name; o.textContent=w.name; sel.appendChild(o); });
+    document.getElementById('wp-empty').style.display='none';
+    document.getElementById('wp-plot').style.display='block';
+    wpIsPlotInit=false;
+    wpUpdatePlot();
+  }catch(e){ log('Canvas Error: '+e.message,'err'); }
+}
+
+function wpResampleWell(w,step=5){
+  const mdMin=Math.min(...w.MD),mdMax=Math.max(...w.MD),newMD=[];
+  for(let m=mdMin;m<=mdMax;m+=step) newMD.push(m);
+  const interp=arr=>newMD.map(m=>{
+    for(let i=1;i<w.MD.length;i++){
+      const m1=w.MD[i-1],m2=w.MD[i];
+      if(m>=m1&&m<=m2){ const t=(m-m1)/(m2-m1); return arr[i-1]+t*(arr[i]-arr[i-1]); }
+    }
+    return arr[arr.length-1];
+  });
+  return {name:w.name,MD:newMD,x:interp(w.x),y:interp(w.y),z:interp(w.TVD),TVD:interp(w.TVD),INC:interp(w.INC),AZI:interp(w.AZI),DLS:interp(w.DLS),color:w.color};
+}
+
+function wpCaptureVisibility(){
+  const p=document.getElementById('wp-plot'); if(!p||!p.data) return;
+  wpTraceVisibility=p.data.map(tr=>tr.visible!=='legendonly');
+}
+function wpRestoreVisibility(){
+  const p=document.getElementById('wp-plot'); if(!p||!p.data) return;
+  wpTraceVisibility.forEach((vis,idx)=>{ if(p.data[idx]) p.data[idx].visible=vis?true:'legendonly'; });
+  Plotly.redraw('wp-plot');
+}
+
+function wpGetFilteredTraces(){
+  const tvdFrom=parseFloat(document.getElementById('tvdFrom').value);
+  const tvdTo  =parseFloat(document.getElementById('tvdTo').value);
+  const xFrom  =parseFloat(document.getElementById('xFrom').value);
+  const xTo    =parseFloat(document.getElementById('xTo').value);
+  const yFrom  =parseFloat(document.getElementById('yFrom').value);
+  const yTo    =parseFloat(document.getElementById('yTo').value);
+  return wpWells.map((w,wi)=>{
+    const idx=w.TVD.map((t,i)=>{
+      const xi=w.x[i],yi=w.y[i];
+      if((isNaN(tvdFrom)||t>=tvdFrom)&&(isNaN(tvdTo)||t<=tvdTo)&&
+         (isNaN(xFrom)||xi>=xFrom)&&(isNaN(xTo)||xi<=xTo)&&
+         (isNaN(yFrom)||yi>=yFrom)&&(isNaN(yTo)||yi<=yTo)) return i; return -1;
+    }).filter(i=>i>=0);
+    const t=wpTraces[wi];
+    const tr={...t,x:idx.map(i=>w.x[i]),y:idx.map(i=>w.y[i]),z:idx.map(i=>w.z[i]),customdata:idx.map(i=>t.customdata[i])};
+    if(wpCurrentView==='Plan')    tr.z=idx.map(()=>0);
+    if(wpCurrentView==='Section') tr.y=idx.map(()=>0);
+    return tr;
+  });
+}
+
+function wpUpdatePlot(){
+  if(!wpWells.length) return;
+  wpCaptureVisibility();
+  const selVals=[...document.querySelectorAll('.tt-option:checked')].map(c=>c.value);
+  const data=wpGetFilteredTraces();
+  data.forEach(tr=>{
+    let ht=`<b>${tr.name}</b><br>`;
+    if(selVals.includes('MD'))           ht+=`MD: %{customdata.md:.0f} m<br>`;
+    if(selVals.includes('TVD'))          ht+=`TVD: %{customdata.tvd:.1f} m<br>`;
+    if(selVals.includes('INC'))          ht+=`INC: %{customdata.inc:.1f}°<br>`;
+    if(selVals.includes('AZI'))          ht+=`AZI: %{customdata.azi:.0f}°<br>`;
+    if(selVals.includes('DLS'))          ht+=`DLS: %{customdata.dls:.1f}°/30m<br>`;
+    if(selVals.includes('DIST'))         ht+=`C-C: %{customdata.dist:.1f} m<br>`;
+    if(selVals.includes('CLOSEST'))      ht+=`Closest: %{customdata.closest}<br>`;
+    if(selVals.includes('DIST_SELECTED')) ht+=`C-C Sel.: %{customdata.dist_selected:.1f} m<br>`;
+    tr.hovertemplate=ht+`<extra></extra>`;
+  });
+  const layout={
+    paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',font:{color:'#e6edf3',size:11},margin:{l:10,r:10,b:10,t:10},
+    legend:{bgcolor:'#161b22',bordercolor:'#30363d',borderwidth:1,font:{size:11}},
+    scene:{
+      bgcolor:'#0d1117',
+      xaxis:{title:'Easting X (m)',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'},
+      yaxis:{title:'Northing Y (m)',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'},
+      zaxis:{title:'True Vertical Depth TVD (m)',autorange:'reversed',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'},
+      aspectmode:'data'
+    }
+  };
+  if(wpIsPlotInit){ Plotly.react('wp-plot',data,layout); }
+  else { Plotly.newPlot('wp-plot',data,layout,{displayModeBar:false,responsive:true}); wpIsPlotInit=true; }
+  wpRestoreVisibility();
+}
+
+document.getElementById('tt-group').addEventListener('change',e=>{
+  if(e.target.classList.contains('tt-option')){ e.target.closest('.tt-toggle').classList.toggle('on',e.target.checked); wpUpdatePlot(); }
+});
+document.querySelectorAll('#wp-toolbar input[type=number]').forEach(el=>el.addEventListener('change',wpUpdatePlot));
+document.getElementById('btnPlan').addEventListener('click',()=>{ wpCurrentView='Plan'; document.getElementById('btnPlan').className='btn active'; document.getElementById('btnSection').className='btn'; document.getElementById('btn3D').className='btn'; wpIsPlotInit=false; wpUpdatePlot(); });
+document.getElementById('btnSection').addEventListener('click',()=>{ wpCurrentView='Section'; document.getElementById('btnSection').className='btn active'; document.getElementById('btnPlan').className='btn'; document.getElementById('btn3D').className='btn'; wpIsPlotInit=false; wpUpdatePlot(); });
+document.getElementById('btn3D').addEventListener('click',()=>{ wpCurrentView='3D'; document.getElementById('btn3D').className='btn active'; document.getElementById('btnPlan').className='btn'; document.getElementById('btnSection').className='btn'; wpIsPlotInit=false; wpUpdatePlot(); });
+document.getElementById('wellSelector').addEventListener('change',e=>{
+  const sel=e.target.value; if(!sel) return;
+  const selWell=wpWells.find(w=>w.name===sel); if(!selWell) return;
+  wpWells.forEach((w,wi)=>{ w.MD.forEach((_,pi)=>{
+    const px=w.x[pi],py=w.y[pi],pz=w.z[pi]; let minD=Infinity;
+    selWell.x.forEach((sx,j)=>{ const d=Math.sqrt((px-sx)**2+(py-selWell.y[j])**2+(pz-selWell.z[j])**2); if(d<minD) minD=d; });
+    if(wpTraces[wi]&&wpTraces[wi].customdata&&wpTraces[wi].customdata[pi]) wpTraces[wi].customdata[pi].dist_selected=minD;
+  }); });
+  wpUpdatePlot();
+});
+
+
+// ══════════════════════════════════════════════════════════
+//  LOGS VIEWER — ENGINE
+// ══════════════════════════════════════════════════════════
+const DEBUG = false;
+const WELL_COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#393b79','#637939','#8c6d31','#843c39','#7b4173','#3182bd','#e6550d','#31a354','#756bb1','#636363'];
+function lvWellColor(i){ return WELL_COLORS[(i||0)%WELL_COLORS.length]; }
+
+let lvWells = [];
+let lvLwdByWell = {};
+let lvSurveyByWell = {};
+let lvDebounceTimer = null;
+
+const lvDepthMode   = document.getElementById('lv-depthMode');
+const lvZMin        = document.getElementById('lv-zMin');
+const lvZMax        = document.getElementById('lv-zMax');
+const ropMin=document.getElementById('ropMin'), ropMax=document.getElementById('ropMax');
+const wobMin=document.getElementById('wobMin'), wobMax=document.getElementById('wobMax');
+const tqMin =document.getElementById('tqMin'),  tqMax =document.getElementById('tqMax');
+const rpmMin=document.getElementById('rpmMin'), rpmMax=document.getElementById('rpmMax');
+const flowMin=document.getElementById('flowMin'),flowMax=document.getElementById('flowMax');
+const sppMin=document.getElementById('sppMin'), sppMax=document.getElementById('sppMax');
+
+function lvSetStatus(t){ const el=document.getElementById('lv-status'); el.style.display='block'; el.innerText=t; }
+function lvSetMsg(t){ document.getElementById('lv-msg').innerText=t||''; }
+function lvAppendMsg(t){ document.getElementById('lv-msg').innerText+=t; }
+
+// Depth ref label update
+document.getElementById('lv-depthMode').addEventListener('change',()=>{
+  const isTVD = lvDepthMode.value==='TVD';
+  const ref = isTVD?'TVDRT':'MD';
+  document.getElementById('lv-zMinLabel').childNodes[0].textContent=`View from (m ${ref}): `;
+  document.getElementById('lv-zMaxLabel').childNodes[0].textContent=`to (m ${ref}): `;
+  document.getElementById('lv-depthRefNote').textContent=`(interval in ${ref})`;
+});
+
+// Inner tab switching (Logs Viewer)
+document.getElementById('lv-tabBtnDP').addEventListener('click', ()=>lvShowTab('DP'));
+document.getElementById('lv-tabBtnMSE').addEventListener('click', ()=>lvShowTab('MSE'));
+document.getElementById('lv-tabBtnLWD').addEventListener('click', ()=>lvShowTab('LWD'));
+
+function lvShowTab(which){
+  ['DP','MSE','LWD'].forEach(k=>{
+    document.getElementById('lv-tabBtn'+k).classList.toggle('active', k===which);
+    document.getElementById('lv-tab'+k).classList.toggle('active', k===which);
+  });
+  if(which==='MSE'){
+    try{ const active=lvWells.filter(w=>w.enabled); if(active.length) lvRecalcMSE(active,{depthModeSel:lvDepthMode.value}); }catch(e){}
+    try{ Plotly.Plots.resize('plotMSE'); }catch(e){}
+  } else if(which==='LWD'){
+    try{ const active=lvWells.filter(w=>w.enabled); if(active.length&&Object.keys(lvLwdByWell).length) lvRecalcLWD(active,{depthModeSel:lvDepthMode.value}); }catch(e){}
+    try{ Plotly.Plots.resize('plotLWD'); }catch(e){}
+  } else {
+    try{ Plotly.Plots.resize('plotDP'); }catch(e){}
+  }
+}
+
+function lvScheduleRecalc(){
+  if(!lvWells.length) return;
+  if(lvDebounceTimer) clearTimeout(lvDebounceTimer);
+  lvDebounceTimer=setTimeout(lvRecalculateAndPlot,200);
+}
+
+;['lv-depthMode','lv-zMin','lv-zMax',
+  'ropMin','ropMax','wobMin','wobMax','tqMin','tqMax','rpmMin','rpmMax','flowMin','flowMax','sppMin','sppMax',
+  'mseMin','mseMax','hseMin','hseMax','fmseMin','fmseMax','hcrMin','hcrMax','incMin','incMax','incOn',
+  'lwdGrOn','lwdResOn','lwdDenOn','lwdNeuOn',
+  'lwdGrMin','lwdGrMax','lwdResMin','lwdResMax','lwdDenMin','lwdDenMax','lwdNeuMin','lwdNeuMax'
+].forEach(id=>{
+  const el=document.getElementById(id); if(!el) return;
+  el.addEventListener('input', lvScheduleRecalc);
+  el.addEventListener('change', lvScheduleRecalc);
+});
+
+function lvRenderWellList(){
+  const box=document.getElementById('lv-well-list');
+  box.innerHTML='';
+  lvWells.forEach(w=>{
+    const d=document.createElement('div');
+    d.className='lv-well-item';
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.checked=w.enabled;
+    cb.onchange=()=>{ w.enabled=cb.checked; lvScheduleRecalc(); };
+    const sp=document.createElement('span');
+    sp.textContent=w.name;
+    d.appendChild(cb); d.appendChild(sp);
+    box.appendChild(d);
+  });
+}
+
+// ── Parsing utilities ──
+const PSI_PER_BAR = 14.5037738;
+function lvNormalize(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function lvMovingAverage(arr,winPts){
+  if(winPts<=1) return arr.slice();
+  const out=new Array(arr.length).fill(null), h=Math.floor(winPts/2);
+  for(let i=0;i<arr.length;i++){ let s=0,c=0; for(let j=i-h;j<=i+h;j++){ if(j>=0&&j<arr.length&&Number.isFinite(arr[j])){ s+=arr[j]; c++; } } if(c>0) out[i]=s/c; }
+  return out;
+}
+const lvAliases={
+  depth:['dept','deptm','depth','md'], tvd:['tvd','tvds','tvdss','tvdm'],
+  rop:['ropa','rop','ropamhr'], wob:['woba','wob','wobamton'], rpm:['rpmt','rpmm','rpms','rpm'],
+  torque:['tqa','torque','tq','torquemain','torqueabs'],
+  flow:['flow','qtot','flowin','pumpflow','qflow','flowrate','pump1flow','pump2flow','totflow','mfia','mfio','mfi','fipa'],
+  spp:['spp','sppa','pwpa']
+};
+Object.keys(lvAliases).forEach(k=>lvAliases[k]=lvAliases[k].map(lvNormalize));
+function lvCurveMnemonic(line){ return (line.trim().split(/[ \t]/)[0]||'').trim(); }
+function lvParseCurveLine(line){
+  const clean=line.replace(/\s*:\s*.*$/,'').trim();
+  const m=clean.match(/^\s*([^\s\.]+)\s*\.\s*([^\s]*)/);
+  if(!m) return {mnemonic:lvCurveMnemonic(line),unit:''};
+  return {mnemonic:m[1].trim(),unit:(m[2]||'').trim()};
+}
+function lvBuildCurveInfo(curveLines){
+  const infos=[];
+  for(const l of curveLines){ const mn=lvCurveMnemonic(l); if(!mn) continue; const p=lvParseCurveLine(l); infos.push({mnemonic:mn,n:lvNormalize(mn),unitRaw:p.unit}); }
+  return infos;
+}
+function lvUnitFlow(u){ const uu=lvNormalize(u); return uu.includes('lpm')||uu.includes('lmin')||uu.includes('lpermin'); }
+function lvUnitBar(u){ return lvNormalize(u).includes('bar'); }
+function lvUnitPsi(u){ return lvNormalize(u).includes('psi'); }
+function lvPickByAliases(key,curveInfo){
+  const list=lvAliases[key]||[];
+  for(const a of list){ const e=curveInfo.find(c=>c.n===a); if(e) return e; }
+  for(const a of list){ const s=curveInfo.find(c=>c.n.startsWith(a)); if(s) return s; }
+  for(const a of list){ const i=curveInfo.find(c=>c.n.includes(a)); if(i) return i; }
+  return null;
+}
+function lvPickCurve(key,curveInfo){
+  let c=lvPickByAliases(key,curveInfo); if(c) return c;
+  if(key==='flow'){ const byUnit=curveInfo.find(ci=>lvUnitFlow(ci.unitRaw)); if(byUnit) return byUnit; }
+  if(key==='spp'){ const bar=curveInfo.find(ci=>lvUnitBar(ci.unitRaw)); const psi=curveInfo.find(ci=>lvUnitPsi(ci.unitRaw)); return bar||psi||null; }
+  return null;
+}
+function lvPickAny(keys,curveInfo){
+  const kn=keys.map(lvNormalize);
+  for(const k of kn){ const e=curveInfo.find(ci=>ci.n===k); if(e) return e; }
+  for(const k of kn){ const e=curveInfo.find(ci=>ci.n.startsWith(k)); if(e) return e; }
+  for(const k of kn){ const e=curveInfo.find(ci=>ci.n.includes(k)); if(e) return e; }
+  return null;
+}
+function lvGetWellName(las,fallback){
+  try{
+    if(las&&las['~WELL']){
+      let well=null,wellbore=null;
+      for(const raw of las['~WELL']){
+        const t=(raw||'').trim();
+        if(!wellbore&&/^WELLBORE\./i.test(t)){ const after=t.replace(/^WELLBORE\./i,'').trim(); const c=after.indexOf(':'); const v=(c>=0?after.slice(0,c):after).trim(); if(v) wellbore=v; }
+        if(!well&&/^WELL\./i.test(t)){ const after=t.replace(/^WELL\./i,'').trim(); const c=after.indexOf(':'); const v=(c>=0?after.slice(0,c):after).trim(); if(v) well=v; }
+      }
+      if(wellbore) return wellbore; if(well) return well;
+    }
+  }catch(e){}
+  return fallback;
+}
+function lvParseLAS(text){
+  const sections={}; let current=null;
+  const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/);
+  for(const raw of lines){
+    const t=raw.trimStart();
+    if(/^~/i.test(t)){ let key=t.split(/\s+/)[0].toUpperCase(); if(/^~CURVE/i.test(key)||/^~CURVES/i.test(key)) key='~CURVE'; if(/^~WELL/i.test(key)) key='~WELL'; if(/^~ASCII/i.test(key)||key==='~A') key='~A'; sections[key]=[]; current=key; continue; }
+    if(current) sections[current].push(raw);
+  }
+  return sections;
+}
+function lvLayoutKey(axisId){ const base=axisId[0]==='x'?'xaxis':'yaxis'; return axisId.length===1?base:base+axisId.slice(1); }
+
+// ── Survey / TVD helpers ──
+function lvNormAzi(a){ if(!Number.isFinite(a)) return a; let v=a%360; if(v<0) v+=360; return v; }
+function lvMinCurv(mdArr,incDegArr,aziDegArr){
+  const n=Math.min(mdArr.length,incDegArr.length,aziDegArr.length);
+  if(n<2) return {tvd:mdArr.slice(0,n)};
+  const d2r=Math.PI/180, tvd=new Array(n); tvd[0]=0;
+  for(let i=1;i<n;i++){
+    const md1=mdArr[i-1],md2=mdArr[i],dmd=md2-md1;
+    const inc1=incDegArr[i-1]*d2r,inc2=incDegArr[i]*d2r;
+    const azi1=lvNormAzi(aziDegArr[i-1])*d2r,azi2=lvNormAzi(aziDegArr[i])*d2r;
+    if(!Number.isFinite(dmd)||dmd<=0||!Number.isFinite(inc1)||!Number.isFinite(inc2)||!Number.isFinite(azi1)||!Number.isFinite(azi2)){tvd[i]=tvd[i-1];continue;}
+    const cosDL=Math.cos(inc1)*Math.cos(inc2)+Math.sin(inc1)*Math.sin(inc2)*Math.cos(azi2-azi1);
+    const c=Math.max(-1,Math.min(1,cosDL)),dogleg=Math.acos(c);
+    const rf=(dogleg<1e-12)?1:(2/dogleg)*Math.tan(dogleg/2);
+    tvd[i]=tvd[i-1]+(dmd/2)*(Math.cos(inc1)+Math.cos(inc2))*rf;
+  }
+  return {tvd};
+}
+function lvSortUniqueSurvey(pack){
+  const rows=[]; for(let i=0;i<pack.md.length;i++){const md=pack.md[i],inc=pack.incDeg[i],azi=pack.aziDeg[i];if(!Number.isFinite(md)||!Number.isFinite(inc)||!Number.isFinite(azi))continue;rows.push({md,incDeg:inc,aziDeg:lvNormAzi(azi)});}
+  rows.sort((a,b)=>a.md-b.md);const u=[];for(const r of rows){if(!u.length||Math.abs(r.md-u[u.length-1].md)>1e-7)u.push(r);else u[u.length-1]=r;}
+  pack.md=u.map(r=>r.md);pack.incDeg=u.map(r=>r.incDeg);pack.aziDeg=u.map(r=>r.aziDeg);
+}
+function lvFinalizeSurveys(){
+  for(const k of Object.keys(lvSurveyByWell)){ const p=lvSurveyByWell[k]; lvSortUniqueSurvey(p); p.tvd=(p.md.length>=2)?lvMinCurv(p.md,p.incDeg,p.aziDeg).tvd:p.md.slice(); }
+}
+function lvInterp(xArr,yArr,x){ const n=xArr.length; if(n<2||!Number.isFinite(x)) return null; if(x<xArr[0]||x>xArr[n-1]) return null; let lo=0,hi=n-1; while(hi-lo>1){const mid=(lo+hi)>>1;if(xArr[mid]<=x)lo=mid;else hi=mid;} const x0=xArr[lo],x1=xArr[hi],y0=yArr[lo],y1=yArr[hi]; if(!Number.isFinite(y0)||!Number.isFinite(y1)||x1===x0) return null; return y0+(x-x0)/(x1-x0)*(y1-y0); }
+function lvExtrapTVD(s,md){ const n=s.md.length,d2r=Math.PI/180; const md0=s.md[0],md1=s.md[n-1],tvd0=s.tvd[0],tvd1=s.tvd[n-1]; if(md<md0){const inc=(Number.isFinite(s.incDeg[0])?s.incDeg[0]:0)*d2r;return tvd0-Math.cos(inc)*(md0-md);} if(md>md1){const inc=(Number.isFinite(s.incDeg[n-1])?s.incDeg[n-1]:0)*d2r;return tvd1+Math.cos(inc)*(md-md1);} return null; }
+function lvNormKey(s){ return (s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+function lvBuildSurveyIdx(){ const idx={}; for(const k of Object.keys(lvSurveyByWell)) idx[lvNormKey(k)]=k; return idx; }
+function lvResolveSurveyKey(wellName){
+  if(lvSurveyByWell[wellName]) return {key:wellName,mode:'EXACT'};
+  const nidx=lvBuildSurveyIdx(); const wn=lvNormKey(wellName);
+  if(nidx[wn]) return {key:nidx[wn],mode:'NORM_EXACT'};
+  const m=(wellName||'').match(/^([^\s]+)\s+(T\d+|Y\d+|S\d+|L\d+)$/i);
+  if(m){ const base=m[1]; if(lvSurveyByWell[base]) return {key:base,mode:'BASE'}; const bn=lvNormKey(base); if(nidx[bn]) return {key:nidx[bn],mode:'BASE_NORM'}; }
+  let best=null; for(const nk of Object.keys(nidx)){ if(!nk) continue; if(wn.startsWith(nk)||nk.startsWith(wn)||wn.includes(nk)){ if(!best||nk.length>best.nk.length) best={nk,key:nidx[nk]}; } }
+  if(best) return {key:best.key,mode:'FUZZY'};
+  return null;
+}
+function lvIsMostlySame(a,b){ const n=Math.min(a?a.length:0,b?b.length:0); if(n<10) return true; let same=0,fin=0; for(let i=0;i<n;i+=Math.max(1,Math.floor(n/30))){ const x=a[i],y=b[i]; if(Number.isFinite(x)&&Number.isFinite(y)){fin++;if(Math.abs(x-y)<1e-6)same++;} } if(fin==0) return true; return (same/fin)>0.9; }
+function lvFillTvdFromSurvey(obj,wellName){ const res=lvResolveSurveyKey(wellName); if(!res) return false; const s=lvSurveyByWell[res.key]; if(!s||!s.md||!s.tvd||s.md.length<2) return false; const prev=(obj.tvd&&obj.tvd.length===obj.md.length)?obj.tvd:obj.md; obj.tvd=obj.md.map((md,i)=>{ const lin=lvInterp(s.md,s.tvd,md); if(Number.isFinite(lin)) return lin; const ext=lvExtrapTVD(s,md); if(Number.isFinite(ext)) return ext; return prev[i]; }); obj.tvdSource='SURVEY_'+res.mode; return true; }
+function lvEnsureTvd(obj,wellName){ if(!obj||!obj.md) return false; if(!obj.tvd||obj.tvd.length!==obj.md.length||lvIsMostlySame(obj.tvd,obj.md)) return lvFillTvdFromSurvey(obj,wellName); return false; }
+function lvApplySurveyTVD(drillingByWell,lwdByWell){ lvFinalizeSurveys(); let drillApplied=0,lwdApplied=0; for(const wn of Object.keys(drillingByWell)) if(lvEnsureTvd(drillingByWell[wn],wn)) drillApplied++; for(const wn of Object.keys(lwdByWell)){ const pack=lwdByWell[wn]; if(!pack||!pack.files) continue; for(const f of pack.files) if(lvEnsureTvd(f,wn)) lwdApplied++; } return {surveyWells:Object.keys(lvSurveyByWell).length,drillApplied,lwdApplied}; }
+
+function lvGetLwdGR(wellName,depthModeSel){
+  try{ const pack=lvLwdByWell&&lvLwdByWell[wellName]; if(!pack||!pack.files||!pack.files.length) return null; const f=pack.files[0]; const hasSurveyTvd=f.tvd&&f.tvd.length===f.md.length&&!lvIsMostlySame(f.tvd,f.md); const tvdArr=hasSurveyTvd?f.tvd:f.md; const depthArr=(depthModeSel==='TVD')?tvdArr:f.md; const grArr=f.gr; if(!depthArr||!grArr||!grArr.length) return null; return {depthArr,mdArr:f.md,tvdArr,grArr,source:(f.source||'')}; }catch(e){ return null; }
+}
+function lvGetSurveyINC(wellName,depthModeSel){
+  try{ const res=lvResolveSurveyKey(wellName); if(!res) return null; const s=lvSurveyByWell[res.key]; if(!s||!s.md||!s.incDeg) return null; const mdArr=s.md; const tvdArr=(s.tvd&&s.tvd.length===s.md.length)?s.tvd:s.md; const depthArr=(depthModeSel==='TVD')?tvdArr:mdArr; const incArr=s.incDeg; if(!depthArr.length||!incArr.length) return null; return {depthArr,mdArr,tvdArr,incArr,source:'SURVEY_'+(res.mode||'')}; }catch(e){ return null; }
+}
+
+function lvBitArea(){ const m=12.25*0.0254; return Math.PI*Math.pow(m/2,2); }
+function lvMedian(v){ const a=v.filter(Number.isFinite).slice().sort((a,b)=>a-b); if(!a.length) return null; const m=Math.floor(a.length/2); return a.length%2?a[m]:(a[m-1]+a[m])/2; }
+function lvEstimateStep(depth){ const d=[]; for(let i=1;i<depth.length;i++){ const a=depth[i-1],b=depth[i]; if(Number.isFinite(a)&&Number.isFinite(b)){const dx=Math.abs(b-a);if(dx>0)d.push(dx);} } return lvMedian(d)||0.5; }
+
+function lvGetDepthIndicesNoClip(depthArr){ const idx=[]; for(let i=0;i<depthArr.length;i++){ const z=depthArr[i]; if(Number.isFinite(z)) idx.push(i); } return idx.length?idx:[...Array(depthArr.length).keys()]; }
+function lvGetDepthIndices(depthArr){
+  const zmin=parseFloat(lvZMin.value), zmax=parseFloat(lvZMax.value);
+  const hasFilter=Number.isFinite(zmin)&&Number.isFinite(zmax)&&zmin<zmax;
+  const idxToUse=[];
+  for(let i=0;i<depthArr.length;i++){ const z=depthArr[i]; if(!Number.isFinite(z)) continue; if(hasFilter&&z<zmin) continue; if(hasFilter&&z>zmax) continue; idxToUse.push(i); }
+  if(hasFilter) return idxToUse;
+  return idxToUse.length?idxToUse:[...Array(depthArr.length).keys()];
+}
+
+// ── Drill merge ──
+function _finiteCount(rec){ let c=0; for(const k of ['tvd','rop','wob','rpm','tor','flow','sppPsi','sppBar']){ const v=rec[k]; if(v===null||v===undefined) continue; if(Number.isFinite(v)) c++; } return c; }
+function lvMergeDrilling(a,b){
+  if(!a) return b; if(!b) return a;
+  const recs=[];
+  function pushFrom(obj){ const n=Math.min(obj.md.length,obj.rop.length,obj.wob.length,obj.rpm.length,obj.tor.length); for(let i=0;i<n;i++){const md=obj.md[i];if(!Number.isFinite(md))continue;recs.push({md,tvd:(obj.tvd&&obj.tvd.length>i)?obj.tvd[i]:md,rop:obj.rop[i],wob:obj.wob[i],rpm:obj.rpm[i],tor:obj.tor[i],flow:(obj.flow&&obj.flow.length>i)?obj.flow[i]:null,sppPsi:(obj.sppPsi&&obj.sppPsi.length>i)?obj.sppPsi[i]:null,sppBar:(obj.sppBar&&obj.sppBar.length>i)?obj.sppBar[i]:(Number.isFinite(obj.sppPsi?.[i])?(obj.sppPsi[i]/PSI_PER_BAR):null)});} }
+  pushFrom(a); pushFrom(b);
+  recs.sort((r1,r2)=>r1.md-r2.md);
+  const out=[], tol=1e-6;
+  for(const r of recs){ const last=out[out.length-1]; if(last&&Math.abs(r.md-last.md)<tol){ const cNew=_finiteCount(r),cOld=_finiteCount(last); if(cNew>cOld){out[out.length-1]=Object.assign({},last,r,{md:last.md});}else{for(const k of ['tvd','rop','wob','rpm','tor','flow','sppPsi','sppBar']){const lv=last[k],rv=r[k];const lOK=(lv===null||lv===undefined)?false:(Number.isFinite(lv)||typeof lv==='number');const rOK=(rv===null||rv===undefined)?false:(Number.isFinite(rv)||typeof rv==='number');if((!lOK)&&rOK)last[k]=rv;}} }else{out.push(r);} }
+  const name=(a.name||b.name);
+  const merged={name,enabled:(a.enabled!==undefined?a.enabled:(b.enabled!==undefined?b.enabled:true)),md:[],tvd:[],rop:[],wob:[],rpm:[],tor:[],flow:[],sppPsi:[],sppBar:[]};
+  for(const r of out){ merged.md.push(r.md); merged.tvd.push(Number.isFinite(r.tvd)?r.tvd:r.md); merged.rop.push(Number.isFinite(r.rop)?Math.max(r.rop,0):0); merged.wob.push(Number.isFinite(r.wob)?r.wob:0); merged.rpm.push(Number.isFinite(r.rpm)?Math.max(r.rpm,0):120); merged.tor.push(Number.isFinite(r.tor)?Math.max(r.tor,0):1); merged.flow.push(Number.isFinite(r.flow)?Math.max(r.flow,0):null); merged.sppPsi.push(Number.isFinite(r.sppPsi)?Math.max(r.sppPsi,0):null); merged.sppBar.push(Number.isFinite(r.sppBar)?Math.max(r.sppBar,0):(Number.isFinite(r.sppPsi)?(Math.max(r.sppPsi,0)/PSI_PER_BAR):null)); }
+  merged.tvdSource=a.tvdSource||b.tvdSource;
+  return merged;
+}
+
+// ── File input ──
+document.getElementById('lv-file-input').addEventListener('change', async ()=>{
+  const files=[...document.getElementById('lv-file-input').files];
+  if(!files.length){ lvWells=[]; lvLwdByWell={}; lvSurveyByWell={}; lvSetMsg(''); lvSetStatus('Status: idle'); try{Plotly.purge('plotDP');Plotly.purge('plotMSE');Plotly.purge('plotLWD');}catch(e){} document.getElementById('las-info').textContent='No files loaded'; document.getElementById('las-info').className=''; return; }
+  lvWells=[]; lvLwdByWell={}; lvSurveyByWell={}; lvSetMsg(''); lvSetStatus('Status: loading files...');
+  const drillingByWell={};
+  for(const file of files){
+    try{
+      const raw=await file.text();
+      const las=lvParseLAS(raw);
+      if(!las['~CURVE']||!las['~A']){ continue; }
+      const curveLines=las['~CURVE'].filter(l=>l.trim()&&!/^#/i.test(l));
+      const curveNames=curveLines.map(lvCurveMnemonic);
+      const idx={}; curveNames.forEach((c,i)=>idx[c]=i);
+      const curveInfo=lvBuildCurveInfo(curveLines);
+      const depthPick=lvPickCurve('depth',curveInfo), tvdPick=lvPickCurve('tvd',curveInfo);
+      const ropPick=lvPickCurve('rop',curveInfo), wobPick=lvPickCurve('wob',curveInfo);
+      const rpmPick=lvPickCurve('rpm',curveInfo), tqPick=lvPickCurve('torque',curveInfo);
+      const flowPick=lvPickCurve('flow',curveInfo), sppPick=lvPickCurve('spp',curveInfo);
+      const depthC=depthPick?depthPick.mnemonic:null, tvdC=tvdPick?tvdPick.mnemonic:null;
+      const ropC=ropPick?ropPick.mnemonic:null, wobC=wobPick?wobPick.mnemonic:null;
+      function pickAny(keys){ const kn=keys.map(lvNormalize); for(const k of kn){const e=curveInfo.find(ci=>ci.n===k);if(e)return e;} for(const k of kn){const e=curveInfo.find(ci=>ci.n.startsWith(k));if(e)return e;} for(const k of kn){const e=curveInfo.find(ci=>ci.n.includes(k));if(e)return e;} return null; }
+      const grPick=pickAny(['gr','gamma','gamm','bacgc','icgrc','cgr','grc']);
+      const rtPick=pickAny(['rt','res','resd','rdep','ild','lld','rsh32','rsh48','rsm48']);
+      const rhobPick=pickAny(['rhob','den','alcd','alcdlc']);
+      const nphiPick=pickAny(['nphi','neu','tnpl','tnph']);
+      const incPick=pickAny(['inc','inca','incl','inclination','incdeg','incldeg','devi','deviation','devdeg']);
+      const aziPick=pickAny(['azi','azia','azim','azimuth','azideg','dir','direction','hdg','heading']);
+      const hasDrilling=!!(depthC&&ropC&&wobC);
+      const hasLWD=!!(depthC&&(grPick||rtPick||rhobPick||nphiPick))&&!hasDrilling;
+      const hasSurvey=!!(depthC&&incPick&&aziPick);
+      const rows=las['~A'].filter(l=>l.trim()&&!/^#/i.test(l)).map(l=>l.trim().split(/[\s,]+/).map(Number));
+      const fallbackName=file.name.replace(/\.(las|txt)$/i,'');
+      const wellName=lvGetWellName(las,fallbackName);
+      if(hasSurvey){ const incC=incPick?incPick.mnemonic:null,aziC=aziPick?aziPick.mnemonic:null; if(incC&&aziC&&(incC in idx)&&(aziC in idx)){if(!lvSurveyByWell[wellName])lvSurveyByWell[wellName]={name:wellName,md:[],incDeg:[],aziDeg:[]};for(const r of rows){const d=r[idx[depthC]],ic=r[idx[incC]],az=r[idx[aziC]];if(!Number.isFinite(d)||!Number.isFinite(ic)||!Number.isFinite(az))continue;lvSurveyByWell[wellName].md.push(d);lvSurveyByWell[wellName].incDeg.push(ic);lvSurveyByWell[wellName].aziDeg.push(az);}continue;} }
+      if(hasDrilling){
+        const md=[],tvd=[],rop=[],wob=[],rpm=[],tor=[],flow=[],sppPsi=[];
+        const flowC=flowPick?flowPick.mnemonic:null, sppC=sppPick?sppPick.mnemonic:null;
+        const sppUnit=sppPick?(sppPick.unitRaw||''):'', sppIsBar=lvNormalize(sppUnit).includes('bar')||lvNormalize(sppC||'')==='pwpa';
+        for(const r of rows){ const d=r[idx[depthC]],ro=r[idx[ropC]],wo=r[idx[wobC]]; if(!Number.isFinite(d)||!Number.isFinite(ro)||!Number.isFinite(wo)) continue; md.push(d); tvd.push(tvdC&&(tvdC in idx)?r[idx[tvdC]]:d); rop.push(Math.max(ro,0)); wob.push(wo); const rv=rpmPick&&(rpmPick.mnemonic in idx)?r[idx[rpmPick.mnemonic]]:120; rpm.push(Number.isFinite(rv)?Math.max(rv,0):120); const tv=tqPick&&(tqPick.mnemonic in idx)?r[idx[tqPick.mnemonic]]:1; tor.push(Number.isFinite(tv)?Math.max(tv,0):1); if(flowC&&(flowC in idx)){const fl=r[idx[flowC]];flow.push(Number.isFinite(fl)?Math.max(fl,0):null);}else flow.push(null); if(sppC&&(sppC in idx)){const sp=r[idx[sppC]];if(Number.isFinite(sp)){const spPsi=sppIsBar?(sp*PSI_PER_BAR):sp;sppPsi.push(Math.max(spPsi,0));}else sppPsi.push(null);}else sppPsi.push(null); }
+        if(md.length<50) continue;
+        const _new={name:wellName,enabled:true,md,tvd,rop,wob,rpm,tor,flow,sppPsi,sppBar:sppPsi.map(v=>Number.isFinite(v)?(v/PSI_PER_BAR):null)};
+        if(drillingByWell[wellName]) drillingByWell[wellName]=lvMergeDrilling(drillingByWell[wellName],_new); else drillingByWell[wellName]=_new;
+        continue;
+      }
+      if(hasLWD){
+        if(!lvLwdByWell[wellName]) lvLwdByWell[wellName]={name:wellName,files:[]};
+        const md=[],tvd=[],gr=[],rt=[],rhob=[],nphi=[];
+        const tvdMnemonic=tvdC&&(tvdC in idx)?tvdC:null;
+        const grC=grPick?grPick.mnemonic:null,rtC=rtPick?rtPick.mnemonic:null,rhobC=rhobPick?rhobPick.mnemonic:null,nphiC=nphiPick?nphiPick.mnemonic:null;
+        const NULLVAL=-999.25, fix=v=>(Number.isFinite(v)&&v!==NULLVAL)?v:null;
+        for(const r of rows){ const d=r[idx[depthC]]; if(!Number.isFinite(d)) continue; md.push(d); tvd.push(tvdMnemonic?r[idx[tvdMnemonic]]:d); gr.push(grC&&(grC in idx)?fix(r[idx[grC]]):null); rt.push(rtC&&(rtC in idx)?fix(r[idx[rtC]]):null); rhob.push(rhobC&&(rhobC in idx)?fix(r[idx[rhobC]]):null); nphi.push(nphiC&&(nphiC in idx)?fix(r[idx[nphiC]]):null); }
+        if(md.length<50) continue;
+        lvLwdByWell[wellName].files.push({source:file.name,md,tvd,gr,rt,rhob,nphi});
+        continue;
+      }
+    }catch(err){ if(DEBUG) lvAppendMsg(`Error reading ${file.name}: ${err.message}\n`); }
+  }
+  const surveyStats=lvApplySurveyTVD(drillingByWell,lvLwdByWell);
+  lvWells=Object.values(drillingByWell);
+  lvRenderWellList();
+  const drillingCount=lvWells.length, lwdCount=Object.keys(lvLwdByWell).length, lwdFilesCount=Object.values(lvLwdByWell).reduce((s,w)=>s+(w.files?w.files.length:0),0);
+  const partialSurveys=Object.values(lvSurveyByWell).filter(s=>s.md&&s.md.length>0&&s.md[0]>50);
+  if(partialSurveys.length>0) lvSetMsg(`⚠ TVDRT WARNING: ${partialSurveys.length} survey(s) do not start from surface — ${partialSurveys.map(s=>s.name+' (MD[0]='+s.md[0].toFixed(0)+'m)').join(', ')}.\nTVDRT is computed RELATIVE to the first survey station. Provide full surveys from MD=0 for absolute TVDRT.`);
+  else lvSetMsg('');
+  const infoEl=document.getElementById('las-info');
+  infoEl.textContent=`${drillingCount} drilling, ${lwdCount} LWD wells loaded (${files.length} files)`;
+  infoEl.className='loaded';
+  if(!lvWells.length){ lvSetStatus(`Loaded ${drillingCount} drilling, ${lwdCount} LWD wells — no drilling data to plot`); try{Plotly.purge('plotDP');Plotly.purge('plotMSE');}catch(e){} }
+  else{ lvSetStatus(`Loaded ${drillingCount} drilling, ${lwdCount} LWD (${lwdFilesCount} files) | Surveys: ${surveyStats?surveyStats.surveyWells:0} | TVDRT applied → Drill: ${surveyStats?surveyStats.drillApplied:0}, LWD: ${surveyStats?surveyStats.lwdApplied:0}`); lvRecalculateAndPlot(); }
+});
+
+function lvRecalculateAndPlot(){
+  const active=lvWells.filter(w=>w.enabled);
+  if(!active.length){ lvSetStatus('No wells selected'); try{Plotly.purge('plotDP');Plotly.purge('plotMSE');Plotly.purge('plotLWD');}catch(e){} return; }
+  lvRecalcDrilling(active,{depthModeSel:lvDepthMode.value});
+  try{ lvRecalcMSE(active,{depthModeSel:lvDepthMode.value}); }catch(e){}
+  try{ if(lvLwdByWell&&Object.keys(lvLwdByWell).length) lvRecalcLWD(active,{depthModeSel:lvDepthMode.value}); }catch(e){}
+}
+
+// ── Drilling plot ──
+function lvRecalcDrilling(active, wsInfo){
+  const depthModeSel=lvDepthMode.value;
+  const ranges={rop:[parseFloat(ropMin.value)||0,parseFloat(ropMax.value)||200],wob:[parseFloat(wobMin.value)||0,parseFloat(wobMax.value)||50],tq:[parseFloat(tqMin.value)||0,parseFloat(tqMax.value)||50],rpm:[parseFloat(rpmMin.value)||0,parseFloat(rpmMax.value)||200],flow:[parseFloat(flowMin.value)||0,parseFloat(flowMax.value)||5000],spp:[parseFloat(sppMin.value)||0,parseFloat(sppMax.value)||500]};
+  let yMin=Infinity,yMax=-Infinity;
+  const perWell=[];
+  for(const w of active){ const depthArr=(depthModeSel==='TVD')?w.tvd:w.md; const useIdx=lvGetDepthIndices(depthArr); useIdx.forEach(i=>{const z=depthArr[i];if(Number.isFinite(z)){yMin=Math.min(yMin,z);yMax=Math.max(yMax,z);}});perWell.push({w,depthArr,useIdx}); }
+  const zmin=parseFloat(lvZMin.value),zmax=parseFloat(lvZMax.value);
+  const yRange=(Number.isFinite(zmin)&&Number.isFinite(zmax)&&zmin<zmax)?[zmax,zmin]:[yMax,yMin];
+  const nW=perWell.length, nCols=nW+1, traces=[];
+  const layout={title:'',grid:{rows:1,columns:nCols,pattern:'independent'},showlegend:true,legend:{orientation:'h',y:1.25,x:0,font:{size:11},groupclick:'togglegroup'},margin:{l:90,r:25,t:80,b:45},annotations:[],paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',font:{color:'#e6edf3',size:11}};
+  const params=[{key:'rop',label:'ROP (m/h)',color:'#1f77b4',range:ranges.rop},{key:'wob',label:'WOB (t)',color:'#2ca02c',range:ranges.wob},{key:'tq',label:'TQ (t)',color:'#ff7f0e',range:ranges.tq},{key:'rpm',label:'RPM',color:'#9467bd',range:ranges.rpm},{key:'flow',label:'FLOW (lpm)',color:'#17becf',range:ranges.flow},{key:'spp',label:'SPP (bar)',color:'#d62728',range:ranges.spp}];
+  function bX(col){ return (col===1)?'x':('x'+String(col)); } function bY(col){ return (col===1)?'y':('y'+String(col)); }
+  let nextXNum=nCols+1;
+  for(let wi=0;wi<nW;wi++){
+    const {w,depthArr,useIdx}=perWell[wi];const col=wi+1;const xBase=bX(col);const yBase=bY(col);
+    layout[lvLayoutKey(yBase)]={range:yRange,autorange:false,showgrid:false,zeroline:false,showticklabels:(col===1),ticks:(col===1?'outside':''),title:col===1?{text:depthModeSel==='TVD'?'TVDRT (m)':'MD (m)',font:{size:11}}:undefined,gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+    layout[lvLayoutKey(xBase)]={range:ranges.rop,showgrid:true,zeroline:false,showticklabels:true,ticks:'outside',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+    layout.annotations.push({text:w.name,xref:xBase+' domain',yref:'paper',x:0.5,y:1.08,showarrow:false,font:{size:12,color:'#e6edf3'}});
+    const axisFor={rop:xBase};
+    for(let pi=1;pi<params.length;pi++){const p=params[pi];const xId='x'+String(nextXNum++);axisFor[p.key]=xId;layout[lvLayoutKey(xId)]={overlaying:xBase,anchor:yBase,range:p.range,showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top'};}
+    for(const p of params){
+      const series=(p.key==='rop')?w.rop:(p.key==='wob')?w.wob:(p.key==='tq')?w.tor:(p.key==='rpm')?w.rpm:(p.key==='flow')?w.flow:(p.key==='spp')?w.sppBar:null;
+      if(!series) continue;
+      const x=[],y=[],cd=[];
+      for(const i of useIdx){const z=depthArr[i];const v=series[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;x.push(v);y.push(z);cd.push([w.md[i],(w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);}
+      traces.push({x,y,mode:'lines',line:{width:1.2,color:p.color},name:p.label,legendgroup:p.key,showlegend:(wi===0),xaxis:axisFor[p.key],yaxis:yBase,customdata:cd,hovertemplate:w.name+'<br>'+p.label+': %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});
+    }
+  }
+  // ALL WELLS combined
+  const colC=nCols,xBaseC=bX(colC),yBaseC=bY(colC);
+  layout[lvLayoutKey(yBaseC)]={range:yRange,autorange:false,showgrid:false,zeroline:false,showticklabels:false,gridcolor:'#30363d',linecolor:'#30363d'};
+  layout[lvLayoutKey(xBaseC)]={range:ranges.rop,showgrid:true,zeroline:false,showticklabels:true,ticks:'outside',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+  layout.annotations.push({text:'ALL WELLS',xref:xBaseC+' domain',yref:'paper',x:0.5,y:1.08,showarrow:false,font:{size:12,color:'#e6edf3'}});
+  const axisForC={rop:xBaseC};
+  for(let pi=1;pi<params.length;pi++){const p=params[pi];const xId='x'+String(nextXNum++);axisForC[p.key]=xId;layout[lvLayoutKey(xId)]={overlaying:xBaseC,anchor:yBaseC,range:p.range,showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top'};}
+  perWell.forEach(({w,depthArr,useIdx},wi)=>{
+    const cWell=lvWellColor(wi);
+    for(const p of params){
+      const series=(p.key==='rop')?w.rop:(p.key==='wob')?w.wob:(p.key==='tq')?w.tor:(p.key==='rpm')?w.rpm:(p.key==='flow')?w.flow:(p.key==='spp')?w.sppBar:null;
+      if(!series) continue;
+      const x=[],y=[],cd=[];
+      for(const i of useIdx){const z=depthArr[i];const v=series[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;x.push(v);y.push(z);cd.push([w.md[i],(w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);}
+      if(!x.length) continue;
+      traces.push({x,y,mode:'lines',line:{width:1.0,color:cWell},opacity:0.70,name:p.label,legendgroup:p.key,showlegend:false,xaxis:axisForC[p.key],yaxis:yBaseC,customdata:cd,hovertemplate:w.name+'<br>'+p.label+': %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});
+    }
+  });
+  Plotly.newPlot('plotDP',traces,layout,{responsive:true});
+}
+
+// ── MSE plot ──
+function lvRecalcMSE(active,wsInfo){
+  const depthModeSel=(wsInfo&&wsInfo.depthModeSel)?wsInfo.depthModeSel:lvDepthMode.value;
+  const A=lvBitArea();
+  const ranges={mse:[parseFloat(document.getElementById('mseMin').value)||0,parseFloat(document.getElementById('mseMax').value)||5000],hse:[parseFloat(document.getElementById('hseMin').value)||0,parseFloat(document.getElementById('hseMax').value)||1000],fmse:[parseFloat(document.getElementById('fmseMin').value)||0,parseFloat(document.getElementById('fmseMax').value)||5000],hcr:[parseFloat(document.getElementById('hcrMin').value)||0,parseFloat(document.getElementById('hcrMax').value)||3]};
+  let yMin=Infinity,yMax=-Infinity;
+  const perWell=[];
+  for(const w of active){
+    const depthArr=(depthModeSel==='TVD')?w.tvd:w.md; const useIdx=lvGetDepthIndices(depthArr);
+    useIdx.forEach(i=>{const z=depthArr[i];if(Number.isFinite(z)){yMin=Math.min(yMin,z);yMax=Math.max(yMax,z);}});
+    const MSE=w.wob.map((wo,i)=>(wo/A)+(120*w.rpm[i]*w.tor[i])/(A*Math.max(w.rop[i],1e-6)));
+    const HSE=w.sppPsi.map(sp=>(sp>0?(sp/A)*0.0073:0));
+    const FMSE=MSE.map((v,i,a)=>(i<2||i>a.length-3)?v:(a[i-2]+a[i-1]+a[i]+a[i+1]+a[i+2])/5);
+    const HCR=MSE.map((v,i)=>FMSE[i]/Math.max(v,1e-6));
+    perWell.push({w,depthArr,useIdx,MSE,HSE,FMSE,HCR});
+  }
+  const zmin=parseFloat(lvZMin.value),zmax=parseFloat(lvZMax.value);
+  const yRange=(Number.isFinite(zmin)&&Number.isFinite(zmax)&&zmin<zmax)?[zmax,zmin]:[yMax,yMin];
+  const nW=perWell.length,nCols=nW+1,traces=[];
+  const layout={title:'',grid:{rows:1,columns:nCols,pattern:'independent'},showlegend:true,legend:{orientation:'h',y:1.25,x:0,font:{size:11},groupclick:'togglegroup'},margin:{l:90,r:25,t:80,b:45},annotations:[],paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',font:{color:'#e6edf3',size:11}};
+  const curves=[{key:'mse',label:'MSE',color:'#1f77b4',range:ranges.mse},{key:'hse',label:'HSE',color:'#d62728',range:ranges.hse},{key:'fmse',label:'FMSE',color:'#2ca02c',range:ranges.fmse},{key:'hcr',label:'HCR',color:'#9467bd',range:ranges.hcr}];
+  const incEnabled=document.getElementById('incOn')?document.getElementById('incOn').checked:false;
+  function bX(col){return(col===1)?'x':('x'+String(col));} function bY(col){return(col===1)?'y':('y'+String(col));}
+  let nextXNum=nCols+1;
+  for(let wi=0;wi<nW;wi++){
+    const pw=perWell[wi];const w=pw.w;const depthArr=pw.depthArr;const useIdx=pw.useIdx;const col=wi+1;const xBase=bX(col);const yBase=bY(col);
+    layout[lvLayoutKey(yBase)]={range:yRange,autorange:false,showgrid:false,zeroline:false,showticklabels:(col===1),ticks:(col===1?'outside':''),title:col===1?{text:depthModeSel==='TVD'?'TVDRT (m)':'MD (m)',font:{size:11}}:undefined,gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+    layout[lvLayoutKey(xBase)]={range:ranges.mse,showgrid:true,zeroline:false,showticklabels:true,ticks:'outside',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+    layout.annotations.push({text:w.name,xref:xBase+' domain',yref:'paper',x:0.5,y:1.08,showarrow:false,font:{size:12,color:'#e6edf3'}});
+    const axisFor={mse:xBase};
+    for(let ci=1;ci<curves.length;ci++){const c=curves[ci];const xId='x'+String(nextXNum++);axisFor[c.key]=xId;layout[lvLayoutKey(xId)]={overlaying:xBase,anchor:yBase,range:c.range,showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top',type:'linear',autorange:false};}
+    const seriesMap={mse:pw.MSE,hse:pw.HSE,fmse:pw.FMSE,hcr:pw.HCR};
+    for(const c of curves){const series=seriesMap[c.key];const x=[],y=[],cd=[];for(const i of useIdx){const z=depthArr[i];const v=series[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;x.push(v);y.push(z);cd.push([w.md[i],(w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);}traces.push({x,y,mode:'lines',line:{width:1.2,color:c.color},name:c.label,legendgroup:c.key,showlegend:(wi===0),xaxis:axisFor[c.key],yaxis:yBase,customdata:cd,hovertemplate:w.name+'<br>'+c.label+': %{x:.3f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});}
+    // GR overlay
+    {const grPack=lvGetLwdGR(w.name,depthModeSel);if(grPack){const grIdx=lvGetDepthIndices(grPack.depthArr);const gx=[],gy=[],gcd=[];for(const i of grIdx){const z=grPack.depthArr[i];const v=grPack.grArr[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;gx.push(v);gy.push(z);gcd.push([grPack.mdArr[i],grPack.tvdArr[i]]);}if(gx.length){const xIdGR='x'+String(nextXNum++);layout[lvLayoutKey(xIdGR)]={overlaying:xBase,anchor:yBase,range:[parseFloat(document.getElementById('lwdGrMin')?.value)||0,parseFloat(document.getElementById('lwdGrMax')?.value)||150],showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top',type:'linear',autorange:false};traces.push({x:gx,y:gy,mode:'lines',line:{width:1.2,color:'#2ca02c'},name:'GR',legendgroup:'gr',showlegend:(wi===0),xaxis:xIdGR,yaxis:yBase,customdata:gcd,hovertemplate:w.name+'<br>GR: %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});}}}
+  }
+  // Combined ALL WELLS
+  const colC=nCols,xBaseC=bX(colC),yBaseC=bY(colC);
+  layout[lvLayoutKey(yBaseC)]={range:yRange,autorange:false,showgrid:false,zeroline:false,showticklabels:false,gridcolor:'#30363d',linecolor:'#30363d'};
+  layout[lvLayoutKey(xBaseC)]={range:ranges.mse,showgrid:true,zeroline:false,showticklabels:true,ticks:'outside',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+  layout.annotations.push({text:'ALL WELLS',xref:xBaseC+' domain',yref:'paper',x:0.5,y:1.08,showarrow:false,font:{size:12,color:'#e6edf3'}});
+  const axisForC={mse:xBaseC};
+  for(let ci=1;ci<curves.length;ci++){const c=curves[ci];const xId='x'+String(nextXNum++);axisForC[c.key]=xId;layout[lvLayoutKey(xId)]={overlaying:xBaseC,anchor:yBaseC,range:c.range,showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top',type:'linear',autorange:false};}
+  let xIdGRC=null,xIdINC=null;
+  {const grAnyAvail=perWell.some(pw=>lvGetLwdGR(pw.w.name,depthModeSel)!==null);if(grAnyAvail){xIdGRC='x'+String(nextXNum++);layout[lvLayoutKey(xIdGRC)]={overlaying:xBaseC,anchor:yBaseC,range:[parseFloat(document.getElementById('lwdGrMin')?.value)||0,parseFloat(document.getElementById('lwdGrMax')?.value)||150],showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top',type:'linear',autorange:false};}}
+  if(incEnabled){xIdINC='x'+String(nextXNum++);layout[lvLayoutKey(xIdINC)]={overlaying:xBaseC,anchor:yBaseC,range:[parseFloat(document.getElementById('incMin')?.value)||0,parseFloat(document.getElementById('incMax')?.value)||120],showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top',type:'linear',autorange:false};}
+  perWell.forEach(({w,depthArr,useIdx,MSE,HSE,FMSE,HCR},wi)=>{
+    const cWell=lvWellColor(wi),seriesMap={mse:MSE,hse:HSE,fmse:FMSE,hcr:HCR};
+    for(const c of curves){const series=seriesMap[c.key];const x=[],y=[],cd=[];for(const i of useIdx){const z=depthArr[i];const v=series[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;x.push(v);y.push(z);cd.push([w.md[i],(w.tvd&&Number.isFinite(w.tvd[i])?w.tvd[i]:w.md[i])]);}if(!x.length)continue;traces.push({x,y,mode:'lines',line:{width:1.0,color:cWell},opacity:0.70,name:c.label,legendgroup:c.key,showlegend:false,xaxis:axisForC[c.key],yaxis:yBaseC,customdata:cd,hovertemplate:w.name+'<br>'+c.label+': %{x:.3f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});}
+    if(xIdGRC){const grPack=lvGetLwdGR(w.name,depthModeSel);if(grPack){const grIdx=lvGetDepthIndices(grPack.depthArr);const gx=[],gy=[],gcd=[];for(const i of grIdx){const z=grPack.depthArr[i];const v=grPack.grArr[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;gx.push(v);gy.push(z);gcd.push([grPack.mdArr[i],grPack.tvdArr[i]]);}if(gx.length)traces.push({x:gx,y:gy,mode:'lines',line:{width:1.0,color:cWell},opacity:0.70,name:'GR',legendgroup:'gr',showlegend:false,xaxis:xIdGRC,yaxis:yBaseC,customdata:gcd,hovertemplate:w.name+'<br>GR: %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});}}
+    if(incEnabled&&xIdINC){const incPack=lvGetSurveyINC(w.name,depthModeSel);if(incPack){const incIdx=lvGetDepthIndices(incPack.depthArr);const ix=[],iy=[],icd=[];for(const i of incIdx){const z=incPack.depthArr[i];const v=incPack.incArr[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;ix.push(v);iy.push(z);icd.push([incPack.mdArr[i],incPack.tvdArr[i]]);}if(ix.length)traces.push({x:ix,y:iy,mode:'lines',line:{width:1.0,color:cWell},opacity:0.70,name:'INC',legendgroup:'inc',showlegend:false,xaxis:xIdINC,yaxis:yBaseC,customdata:icd,hovertemplate:w.name+'<br>INC: %{x:.2f}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});}}
+  });
+  // Preserve legend visibility
+  const plotDiv=document.getElementById('plotMSE');
+  const prevData=(plotDiv&&plotDiv.data)?plotDiv.data:null;
+  const visMap={};
+  if(prevData){for(const t of prevData){const key=(t.legendgroup||'')+'|'+(t.name||'')+'|'+(t.showlegend?'1':'0');if(t.visible==='legendonly'||t.visible===false)visMap[key]=t.visible;}}
+  for(const t of traces){const key=(t.legendgroup||'')+'|'+(t.name||'')+'|'+(t.showlegend?'1':'0');if(visMap[key]!==undefined)t.visible=visMap[key];}
+  Plotly.react('plotMSE',traces,layout,{responsive:true});
+}
+
+// ── LWD plot ──
+function lvRecalcLWD(active,wsInfo){
+  const depthModeSel=lvDepthMode.value;
+  if(!lvLwdByWell){try{Plotly.purge('plotLWD');}catch(e){}return;}
+  const show={gr:document.getElementById('lwdGrOn')?document.getElementById('lwdGrOn').checked:true,res:document.getElementById('lwdResOn')?document.getElementById('lwdResOn').checked:true,den:document.getElementById('lwdDenOn')?document.getElementById('lwdDenOn').checked:true,neu:document.getElementById('lwdNeuOn')?document.getElementById('lwdNeuOn').checked:true};
+  const grMinEl=document.getElementById('lwdGrMin'),grMaxEl=document.getElementById('lwdGrMax');
+  const resMinEl=document.getElementById('lwdResMin'),resMaxEl=document.getElementById('lwdResMax');
+  const denMinEl=document.getElementById('lwdDenMin'),denMaxEl=document.getElementById('lwdDenMax');
+  const neuMinEl=document.getElementById('lwdNeuMin'),neuMaxEl=document.getElementById('lwdNeuMax');
+  const ranges={gr:[parseFloat(grMinEl?.value),parseFloat(grMaxEl?.value)],res:[parseFloat(resMinEl?.value),parseFloat(resMaxEl?.value)],den:[parseFloat(denMinEl?.value),parseFloat(denMaxEl?.value)],neu:[parseFloat(neuMinEl?.value),parseFloat(neuMaxEl?.value)]};
+  if(!Number.isFinite(ranges.gr[0]))ranges.gr[0]=0;if(!Number.isFinite(ranges.gr[1])||ranges.gr[1]<=ranges.gr[0])ranges.gr[1]=150;
+  if(!Number.isFinite(ranges.den[0]))ranges.den[0]=1.8;if(!Number.isFinite(ranges.den[1])||ranges.den[1]<=ranges.den[0])ranges.den[1]=2.8;
+  if(!Number.isFinite(ranges.neu[0]))ranges.neu[0]=0;if(!Number.isFinite(ranges.neu[1])||ranges.neu[1]<=ranges.neu[0])ranges.neu[1]=0.6;
+  if(!Number.isFinite(ranges.res[0])||ranges.res[0]<=0)ranges.res[0]=0.2;if(!Number.isFinite(ranges.res[1])||ranges.res[1]<=ranges.res[0])ranges.res[1]=2000;
+  const curves=[];
+  if(show.gr)  curves.push({key:'gr',dataKey:'gr',label:'GR',color:'#2ca02c',range:ranges.gr,axisType:'linear'});
+  if(show.res) curves.push({key:'res',dataKey:'rt',label:'RES',color:'#1f77b4',range:ranges.res,axisType:'log'});
+  if(show.den) curves.push({key:'den',dataKey:'rhob',label:'DEN',color:'#ff7f0e',range:ranges.den,axisType:'linear'});
+  if(show.neu) curves.push({key:'neu',dataKey:'nphi',label:'NEU',color:'#9467bd',range:ranges.neu,axisType:'linear'});
+  if(!curves.length){try{Plotly.purge('plotLWD');}catch(e){}return;}
+  const perWell=[];let yMin=Infinity,yMax=-Infinity;
+  for(const w of active){
+    const pack=lvLwdByWell[w.name];if(!pack||!pack.files||!pack.files.length)continue;
+    let mdM=[],tvdM=[],grM=[],rtM=[],rhobM=[],nphiM=[];
+    for(const f0 of pack.files){if(depthModeSel==='TVD'){try{lvEnsureTvd(f0,w.name);}catch(e){}}const n=f0.md?f0.md.length:0;for(let i=0;i<n;i++){const d=f0.md[i];if(!Number.isFinite(d))continue;mdM.push(d);tvdM.push((f0.tvd&&Number.isFinite(f0.tvd[i]))?f0.tvd[i]:d);grM.push(f0.gr?.[i]??null);rtM.push(f0.rt?.[i]??null);rhobM.push(f0.rhob?.[i]??null);nphiM.push(f0.nphi?.[i]??null);}}
+    const ord=mdM.map((_,i)=>i).sort((a,b)=>mdM[a]-mdM[b]);
+    const md=ord.map(i=>mdM[i]),tvd=ord.map(i=>tvdM[i]),gr=ord.map(i=>grM[i]),rt=ord.map(i=>rtM[i]),rhob=ord.map(i=>rhobM[i]),nphi=ord.map(i=>nphiM[i]);
+    const fMerged={source:'MERGED',md,tvd,gr,rt,rhob,nphi};
+    const depthArr=(depthModeSel==='TVD')?tvd:md;
+    const useIdx=lvGetDepthIndicesNoClip(depthArr);
+    useIdx.forEach(i=>{const z=depthArr[i];if(Number.isFinite(z)){yMin=Math.min(yMin,z);yMax=Math.max(yMax,z);}});
+    perWell.push({name:w.name,f:fMerged,depthArr,useIdx});
+  }
+  if(!perWell.length){try{Plotly.purge('plotLWD');}catch(e){}return;}
+  yMin=Infinity;yMax=-Infinity;for(const pw of perWell){for(const z of pw.depthArr){if(Number.isFinite(z)){yMin=Math.min(yMin,z);yMax=Math.max(yMax,z);}}}
+  const yRange=[yMax,yMin];
+  const nW=perWell.length,traces=[];
+  const layout={title:'',grid:{rows:1,columns:nW,pattern:'independent'},showlegend:true,legend:{orientation:'h',y:1.25,x:0,font:{size:11},groupclick:'togglegroup'},margin:{l:90,r:25,t:80,b:45},annotations:[],paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',font:{color:'#e6edf3',size:11}};
+  let baseCurve=curves.find(c=>c.key==='gr')||curves[0];
+  let nextXNum=nW+1;
+  for(let wi=0;wi<nW;wi++){
+    const pw=perWell[wi];
+    const xBase='x'+(wi===0?'':String(wi+1));const yBase='y'+(wi===0?'':String(wi+1));
+    layout[lvLayoutKey(yBase)]={range:yRange,autorange:false,showgrid:false,zeroline:false,showticklabels:(wi===0),ticks:(wi===0?'outside':''),gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};
+    if(baseCurve.axisType==='log'){layout[lvLayoutKey(xBase)]={type:'log',range:[Math.log10(baseCurve.range[0]),Math.log10(baseCurve.range[1])],autorange:false,showgrid:true,zeroline:false,showticklabels:true,ticks:'outside',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};}
+    else{layout[lvLayoutKey(xBase)]={type:'linear',range:(baseCurve.key==='neu')?[baseCurve.range[1],baseCurve.range[0]]:baseCurve.range,autorange:false,showgrid:true,zeroline:false,showticklabels:true,ticks:'outside',gridcolor:'#30363d',linecolor:'#30363d',color:'#8b949e'};}
+    layout.annotations.push({text:pw.name,xref:xBase+' domain',yref:'paper',x:0.5,y:1.08,showarrow:false,font:{size:12,color:'#e6edf3'}});
+    const axisFor={};axisFor[baseCurve.key]=xBase;
+    for(let ci=1;ci<curves.length;ci++){const c=curves[ci];const xId='x'+String(nextXNum++);axisFor[c.key]=xId;const ax={overlaying:xBase,anchor:yBase,showgrid:false,zeroline:false,showticklabels:false,ticks:'',side:'top'};if(c.axisType==='log'){ax.type='log';ax.range=[Math.log10(c.range[0]),Math.log10(c.range[1])];ax.autorange=false;}else{ax.type='linear';ax.range=(c.key==='neu')?[c.range[1],c.range[0]]:c.range;ax.autorange=false;}layout[lvLayoutKey(xId)]=ax;}
+    for(const c of curves){const series=pw.f[c.dataKey];if(!series||!series.length)continue;const x=[],y=[],cd=[];for(const i of pw.useIdx){const z=pw.depthArr[i];const v=series[i];if(!Number.isFinite(z)||!Number.isFinite(v))continue;if(c.axisType==='log'&&v<=0)continue;x.push(v);y.push(z);cd.push([pw.f.md[i],(pw.f.tvd&&Number.isFinite(pw.f.tvd[i])?pw.f.tvd[i]:pw.f.md[i])]);}if(!x.length)continue;traces.push({x,y,mode:'lines',line:{width:1.2,color:c.color},name:c.label,legendgroup:c.key,showlegend:(wi===0),xaxis:axisFor[c.key],yaxis:yBase,customdata:cd,hovertemplate:pw.name+'<br>'+c.label+': %{x:.3g}<br>MD: %{customdata[0]:.2f}<br>TVDRT: %{customdata[1]:.2f}<extra></extra>'});}
+  }
+  Plotly.newPlot('plotLWD',traces,layout,{responsive:true});
+}
+
+// ── Shared Log bar ──
+document.getElementById('log-toggle').addEventListener('click',e=>{
+  e.stopPropagation();
+  const bar=document.getElementById('log-bar'); bar.classList.toggle('expanded');
+  document.getElementById('log-toggle').textContent=bar.classList.contains('expanded')?'▼ Log':'▲ Log';
+  if(bar.classList.contains('expanded')) renderLog();
+});
+
+// ── Boot ──
+window.addEventListener('DOMContentLoaded', ()=>{
+  setTimeout(()=>{ initSQLjs().catch(e=>log('Engine failed: '+e.message,'err')); }, 300);
+});
+</script>
+</body>
+</html>
